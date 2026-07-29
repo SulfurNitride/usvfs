@@ -79,8 +79,16 @@ struct FileInformationClassUtilsImpl
 
       if constexpr (HasFieldShortName<FileInformationClass>()) {
         if (info->ShortNameLength > 0) {
-          info->ShortNameLength = static_cast<CCHAR>(
-              GetShortPathNameW(fileName.c_str(), info->ShortName, 8));
+          static const bool isWine =
+              GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") !=
+              nullptr;
+          if (isWine) {
+            info->ShortNameLength = 0;
+            ZeroMemory(info->ShortName, sizeof(info->ShortName));
+          } else {
+            info->ShortNameLength = static_cast<CCHAR>(
+                GetShortPathNameW(fileName.c_str(), info->ShortName, 8));
+          }
         }
       }
     }
