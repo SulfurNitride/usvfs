@@ -2,7 +2,7 @@ name: Build USVFS
 
 on:
   push:
-    branches: [master, dev/cmake]
+    branches: [master, dev/cmake, fix/recursive-benaphore-exclusion]
     tags:
       - "*"
   pull_request:
