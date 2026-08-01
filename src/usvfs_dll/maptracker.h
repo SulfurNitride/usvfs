@@ -2,6 +2,7 @@
 
 #include "hookcallcontext.h"
 #include "hookcontext.h"
+#include "profiling.h"
 #include "stringcast.h"
 
 namespace usvfs
@@ -411,9 +412,12 @@ public:
         const RedirectionTreeContainer& table =
             inverse ? context->inverseTable() : context->redirectionTable();
         result.m_FileNode = table->findNode(lookupPath);
+        const bool treeFound =
+            result.m_FileNode.get() && (!result.m_FileNode->data().linkTarget.empty() ||
+                                        result.m_FileNode->isDirectory());
+        profiling::treeLookup(profiling::hashPath(lookupPath.c_str()), treeFound);
 
-        if (result.m_FileNode.get() && (!result.m_FileNode->data().linkTarget.empty() ||
-                                        result.m_FileNode->isDirectory())) {
+        if (treeFound) {
           if (!result.m_FileNode->data().linkTarget.empty()) {
             result.m_Buffer = shared::string_cast<std::wstring>(
                 result.m_FileNode->data().linkTarget.c_str(), shared::CodePage::UTF8);
@@ -565,7 +569,7 @@ public:
     // check virtualized paths
     DWORD virtAttr = GetFileAttributesW(lpFileName);
     bool isFile    = virtAttr != INVALID_FILE_ATTRIBUTES &&
-                  (virtAttr & FILE_ATTRIBUTE_DIRECTORY) == 0;
+                     (virtAttr & FILE_ATTRIBUTE_DIRECTORY) == 0;
     m_isDir =
         virtAttr != INVALID_FILE_ATTRIBUTES && (virtAttr & FILE_ATTRIBUTE_DIRECTORY);
 

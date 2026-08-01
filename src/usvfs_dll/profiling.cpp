@@ -8,6 +8,7 @@ namespace
 {
   constexpr size_t SourceSlotCount       = 128;
   constexpr size_t InformationClassCount = 128;
+  constexpr size_t ProbeSlotCount        = 65536;
 
   struct SourceStats
   {
@@ -64,7 +65,22 @@ namespace
     std::array<SourceStats, SourceSlotCount> sources{};
   };
 
+  struct ProbeStats
+  {
+    std::atomic<unsigned long long> total{0};
+    std::atomic<unsigned long long> positive{0};
+    std::atomic<unsigned long long> negative{0};
+    std::atomic<unsigned long long> repeatPositive{0};
+    std::atomic<unsigned long long> repeatNegative{0};
+    std::atomic<unsigned long long> changed{0};
+    std::atomic<unsigned long long> firstUse{0};
+    std::atomic<unsigned long long> replacements{0};
+    std::array<std::atomic<unsigned long long>, ProbeSlotCount> slots{};
+  };
+
   Counters g_Counters;
+  ProbeStats g_TreeLookups;
+  ProbeStats g_AttributeLookups;
   std::atomic<unsigned long long> g_SummarySequence{0};
   thread_local bool g_EmittingSummary = false;
 
@@ -154,6 +170,46 @@ namespace
   {
     value.store(0, std::memory_order_relaxed);
   }
+
+  void resetProbe(ProbeStats& probe)
+  {
+    clear(probe.total);
+    clear(probe.positive);
+    clear(probe.negative);
+    clear(probe.repeatPositive);
+    clear(probe.repeatNegative);
+    clear(probe.changed);
+    clear(probe.firstUse);
+    clear(probe.replacements);
+    for (auto& slot : probe.slots)
+      clear(slot);
+  }
+
+  void observeProbe(ProbeStats& probe, unsigned long long hash, bool positive)
+  {
+    if (!enabled() || hash == 0)
+      return;
+    probe.total.fetch_add(1, std::memory_order_relaxed);
+    (positive ? probe.positive : probe.negative)
+        .fetch_add(1, std::memory_order_relaxed);
+
+    hash &= 0x7FFFFFFFFFFFFFFFULL;
+    if (hash == 0)
+      hash = 1;
+    const auto encoded  = (hash << 1) | (positive ? 1ULL : 0ULL);
+    auto& slot          = probe.slots[hash & (ProbeSlotCount - 1)];
+    const auto previous = slot.exchange(encoded, std::memory_order_relaxed);
+    if (previous == encoded) {
+      (positive ? probe.repeatPositive : probe.repeatNegative)
+          .fetch_add(1, std::memory_order_relaxed);
+    } else if (previous == 0) {
+      probe.firstUse.fetch_add(1, std::memory_order_relaxed);
+    } else if ((previous >> 1) == hash) {
+      probe.changed.fetch_add(1, std::memory_order_relaxed);
+    } else {
+      probe.replacements.fetch_add(1, std::memory_order_relaxed);
+    }
+  }
 }  // namespace
 
 bool enabled()
@@ -221,6 +277,8 @@ void reset()
     clear(value.waitTicks);
     clear(value.maxWaitTicks);
   }
+  resetProbe(g_TreeLookups);
+  resetProbe(g_AttributeLookups);
   g_HeldLockDepth = 0;
 }
 
@@ -369,6 +427,31 @@ void backingDirectoryQuery(LONGLONG started, bool virtualQuery, LONG result)
     g_Counters.backingQueryOtherStatus.fetch_add(1, std::memory_order_relaxed);
 }
 
+unsigned long long hashPath(const wchar_t* path)
+{
+  if (!enabled() || path == nullptr)
+    return 0;
+  unsigned long long hash = 1469598103934665603ULL;
+  while (*path != L'\0') {
+    wchar_t value = static_cast<wchar_t>(towlower(*path++));
+    if (value == L'/')
+      value = L'\\';
+    hash ^= static_cast<unsigned short>(value);
+    hash *= 1099511628211ULL;
+  }
+  return hash == 0 ? 1 : hash;
+}
+
+void treeLookup(unsigned long long pathHash, bool found)
+{
+  observeProbe(g_TreeLookups, pathHash, found);
+}
+
+void attributeLookup(unsigned long long pathHash, bool missing)
+{
+  observeProbe(g_AttributeLookups, pathHash, missing);
+}
+
 void emitSummary()
 {
   if (!enabled() || g_EmittingSummary)
@@ -442,6 +525,19 @@ void emitSummary()
                g_Counters.backingQuerySuccess.load(),
                g_Counters.backingQueryNoMoreFiles.load(),
                g_Counters.backingQueryOtherStatus.load());
+
+  auto emitProbe = [&](const char* kind, const ProbeStats& probe) {
+    logger->info("[profile] format=1 kind={} pid={} snapshot={} slots={} total={} "
+                 "positive={} negative={} repeat_positive={} repeat_negative={} "
+                 "changed={} first_use={} replacements={}",
+                 kind, ::GetCurrentProcessId(), sequence, ProbeSlotCount,
+                 probe.total.load(), probe.positive.load(), probe.negative.load(),
+                 probe.repeatPositive.load(), probe.repeatNegative.load(),
+                 probe.changed.load(), probe.firstUse.load(),
+                 probe.replacements.load());
+  };
+  emitProbe("tree_lookup_cache", g_TreeLookups);
+  emitProbe("negative_attribute_cache", g_AttributeLookups);
 
   for (size_t i = 0; i < InformationClassCount; ++i) {
     const auto count = g_Counters.directoryInformationClasses[i].load();

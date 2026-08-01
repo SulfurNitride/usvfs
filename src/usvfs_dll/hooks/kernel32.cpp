@@ -432,6 +432,11 @@ BOOL WINAPI usvfs::hook_GetFileAttributesExW(LPCWSTR lpFileName,
   if (fixedError != originalError)
     callContext.updateLastError(fixedError);
 
+  profiling::attributeLookup(
+      profiling::hashPath(canonicalFile.c_str()),
+      res == INVALID_FILE_ATTRIBUTES &&
+          (fixedError == ERROR_FILE_NOT_FOUND || fixedError == ERROR_PATH_NOT_FOUND));
+
   if (reroute.wasRerouted() || fixedError != originalError) {
     DWORD resAttrib;
     if (res && fInfoLevelId == GetFileExInfoStandard && lpFileInformation)
