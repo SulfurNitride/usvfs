@@ -14,10 +14,9 @@ void lockAcquired(LONGLONG waitStarted, BenaphoreWaitKind waitKind, bool write,
 void lockReleased();
 
 void directoryQuery(bool extendedApi, ULONG informationClass, ULONG bufferLength,
-                    bool singleEntry, bool restartScan,
-                    const UNICODE_STRING* fileName, bool firstSearch,
-                    size_t virtualFilesRemaining, LONG result);
+                    bool singleEntry, bool restartScan, const UNICODE_STRING* fileName,
+                    bool firstSearch, size_t virtualFilesRemaining, LONG result);
 
 void emitSummary();
 
-}
+}  // namespace usvfs::profiling

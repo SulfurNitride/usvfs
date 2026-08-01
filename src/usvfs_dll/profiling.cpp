@@ -6,131 +6,140 @@ namespace usvfs::profiling
 {
 namespace
 {
-constexpr size_t SourceSlotCount = 128;
-constexpr size_t InformationClassCount = 128;
+  constexpr size_t SourceSlotCount       = 128;
+  constexpr size_t InformationClassCount = 128;
 
-struct SourceStats
-{
-  std::atomic<const char*> source{nullptr};
-  std::atomic<unsigned long long> acquisitions{0};
-  std::atomic<unsigned long long> contended{0};
-  std::atomic<unsigned long long> waitTicks{0};
-  std::atomic<unsigned long long> maxWaitTicks{0};
-};
+  struct SourceStats
+  {
+    std::atomic<const char*> source{nullptr};
+    std::atomic<unsigned long long> acquisitions{0};
+    std::atomic<unsigned long long> contended{0};
+    std::atomic<unsigned long long> waitTicks{0};
+    std::atomic<unsigned long long> maxWaitTicks{0};
+  };
 
-struct Counters
-{
-  std::atomic<unsigned long long> lockAcquisitions{0};
-  std::atomic<unsigned long long> lockReads{0};
-  std::atomic<unsigned long long> lockWrites{0};
-  std::atomic<unsigned long long> lockRecursive{0};
-  std::atomic<unsigned long long> lockContended{0};
-  std::atomic<unsigned long long> lockWaitTicks{0};
-  std::atomic<unsigned long long> lockMaxWaitTicks{0};
-  std::atomic<unsigned long long> lockHoldTicks{0};
-  std::atomic<unsigned long long> lockMaxHoldTicks{0};
-  std::atomic<unsigned long long> lockMaxDepth{0};
+  struct Counters
+  {
+    std::atomic<unsigned long long> lockAcquisitions{0};
+    std::atomic<unsigned long long> lockReads{0};
+    std::atomic<unsigned long long> lockWrites{0};
+    std::atomic<unsigned long long> lockRecursive{0};
+    std::atomic<unsigned long long> lockContended{0};
+    std::atomic<unsigned long long> lockWaitTicks{0};
+    std::atomic<unsigned long long> lockMaxWaitTicks{0};
+    std::atomic<unsigned long long> lockHoldTicks{0};
+    std::atomic<unsigned long long> lockMaxHoldTicks{0};
+    std::atomic<unsigned long long> lockMaxDepth{0};
 
-  std::atomic<unsigned long long> directoryQueries{0};
-  std::atomic<unsigned long long> directoryLegacy{0};
-  std::atomic<unsigned long long> directoryExtended{0};
-  std::atomic<unsigned long long> directorySingle{0};
-  std::atomic<unsigned long long> directoryRestart{0};
-  std::atomic<unsigned long long> directoryNullPattern{0};
-  std::atomic<unsigned long long> directoryExactPattern{0};
-  std::atomic<unsigned long long> directoryWildcardPattern{0};
-  std::atomic<unsigned long long> directoryFirstSearch{0};
-  std::atomic<unsigned long long> directoryVirtualRemaining{0};
-  std::atomic<unsigned long long> directorySuccess{0};
-  std::atomic<unsigned long long> directoryNoMoreFiles{0};
-  std::atomic<unsigned long long> directoryNoSuchFile{0};
-  std::atomic<unsigned long long> directoryOtherStatus{0};
-  std::array<std::atomic<unsigned long long>, 6> directoryBufferBuckets{};
-  std::array<std::atomic<unsigned long long>, InformationClassCount>
-      directoryInformationClasses{};
-  std::array<SourceStats, SourceSlotCount> sources{};
-};
+    std::atomic<unsigned long long> directoryQueries{0};
+    std::atomic<unsigned long long> directoryLegacy{0};
+    std::atomic<unsigned long long> directoryExtended{0};
+    std::atomic<unsigned long long> directorySingle{0};
+    std::atomic<unsigned long long> directoryRestart{0};
+    std::atomic<unsigned long long> directoryNullPattern{0};
+    std::atomic<unsigned long long> directoryExactPattern{0};
+    std::atomic<unsigned long long> directoryWildcardPattern{0};
+    std::atomic<unsigned long long> directoryFirstSearch{0};
+    std::atomic<unsigned long long> directoryVirtualRemaining{0};
+    std::atomic<unsigned long long> directorySuccess{0};
+    std::atomic<unsigned long long> directoryNoMoreFiles{0};
+    std::atomic<unsigned long long> directoryNoSuchFile{0};
+    std::atomic<unsigned long long> directoryOtherStatus{0};
+    std::array<std::atomic<unsigned long long>, 6> directoryBufferBuckets{};
+    std::array<std::atomic<unsigned long long>, InformationClassCount>
+        directoryInformationClasses{};
+    std::array<SourceStats, SourceSlotCount> sources{};
+  };
 
-Counters g_Counters;
+  Counters g_Counters;
 
-struct HeldLock
-{
-  LONGLONG acquiredAt;
-};
+  struct HeldLock
+  {
+    LONGLONG acquiredAt;
+  };
 
-thread_local std::array<HeldLock, 64> g_HeldLocks{};
-thread_local size_t g_HeldLockDepth = 0;
+  thread_local std::array<HeldLock, 64> g_HeldLocks{};
+  thread_local size_t g_HeldLockDepth = 0;
 
-void updateMax(std::atomic<unsigned long long>& target,
-               unsigned long long candidate)
-{
-  auto observed = target.load(std::memory_order_relaxed);
-  while (observed < candidate &&
-         !target.compare_exchange_weak(observed, candidate,
-                                       std::memory_order_relaxed)) {
+  void updateMax(std::atomic<unsigned long long>& target, unsigned long long candidate)
+  {
+    auto observed = target.load(std::memory_order_relaxed);
+    while (
+        observed < candidate &&
+        !target.compare_exchange_weak(observed, candidate, std::memory_order_relaxed)) {
+    }
   }
-}
 
-LONGLONG nowTicks()
-{
-  LARGE_INTEGER value{};
-  ::QueryPerformanceCounter(&value);
-  return value.QuadPart;
-}
+  LONGLONG nowTicks()
+  {
+    LARGE_INTEGER value{};
+    ::QueryPerformanceCounter(&value);
+    return value.QuadPart;
+  }
 
-SourceStats* sourceStats(const char* source)
-{
-  if (source == nullptr) {
+  SourceStats* sourceStats(const char* source)
+  {
+    if (source == nullptr) {
+      return nullptr;
+    }
+    const auto value   = reinterpret_cast<uintptr_t>(source);
+    const size_t start = (value >> 4) % SourceSlotCount;
+    for (size_t offset = 0; offset < SourceSlotCount; ++offset) {
+      SourceStats& slot    = g_Counters.sources[(start + offset) % SourceSlotCount];
+      const char* observed = slot.source.load(std::memory_order_relaxed);
+      if (observed == source) {
+        return &slot;
+      }
+      if (observed == nullptr && slot.source.compare_exchange_strong(
+                                     observed, source, std::memory_order_relaxed)) {
+        return &slot;
+      }
+    }
     return nullptr;
   }
-  const auto value = reinterpret_cast<uintptr_t>(source);
-  const size_t start = (value >> 4) % SourceSlotCount;
-  for (size_t offset = 0; offset < SourceSlotCount; ++offset) {
-    SourceStats& slot = g_Counters.sources[(start + offset) % SourceSlotCount];
-    const char* observed = slot.source.load(std::memory_order_relaxed);
-    if (observed == source) {
-      return &slot;
-    }
-    if (observed == nullptr &&
-        slot.source.compare_exchange_strong(observed, source,
-                                            std::memory_order_relaxed)) {
-      return &slot;
-    }
+
+  size_t bufferBucket(ULONG length)
+  {
+    if (length <= 64)
+      return 0;
+    if (length <= 256)
+      return 1;
+    if (length <= 1024)
+      return 2;
+    if (length <= 4096)
+      return 3;
+    if (length <= 16384)
+      return 4;
+    return 5;
   }
-  return nullptr;
-}
 
-size_t bufferBucket(ULONG length)
-{
-  if (length <= 64) return 0;
-  if (length <= 256) return 1;
-  if (length <= 1024) return 2;
-  if (length <= 4096) return 3;
-  if (length <= 16384) return 4;
-  return 5;
-}
+  enum class PatternKind
+  {
+    Null,
+    Exact,
+    Wildcard
+  };
 
-enum class PatternKind { Null, Exact, Wildcard };
-
-PatternKind patternKind(const UNICODE_STRING* fileName)
-{
-  if (fileName == nullptr || fileName->Buffer == nullptr || fileName->Length == 0) {
-    return PatternKind::Null;
-  }
-  const size_t characterCount = fileName->Length / sizeof(wchar_t);
-  for (size_t i = 0; i < characterCount; ++i) {
-    if (fileName->Buffer[i] == L'*' || fileName->Buffer[i] == L'?') {
-      return PatternKind::Wildcard;
+  PatternKind patternKind(const UNICODE_STRING* fileName)
+  {
+    if (fileName == nullptr || fileName->Buffer == nullptr || fileName->Length == 0) {
+      return PatternKind::Null;
     }
+    const size_t characterCount = fileName->Length / sizeof(wchar_t);
+    for (size_t i = 0; i < characterCount; ++i) {
+      if (fileName->Buffer[i] == L'*' || fileName->Buffer[i] == L'?') {
+        return PatternKind::Wildcard;
+      }
+    }
+    return PatternKind::Exact;
   }
-  return PatternKind::Exact;
-}
 
-template <class T> void clear(std::atomic<T>& value)
-{
-  value.store(0, std::memory_order_relaxed);
-}
-}
+  template <class T>
+  void clear(std::atomic<T>& value)
+  {
+    value.store(0, std::memory_order_relaxed);
+  }
+}  // namespace
 
 bool enabled()
 {
@@ -138,7 +147,8 @@ bool enabled()
     wchar_t value[16]{};
     const DWORD length =
         ::GetEnvironmentVariableW(L"FLUORINE_USVFS_PROFILE", value, ARRAYSIZE(value));
-    if (length == 0 || length >= ARRAYSIZE(value)) return false;
+    if (length == 0 || length >= ARRAYSIZE(value))
+      return false;
     return _wcsicmp(value, L"0") != 0 && _wcsicmp(value, L"false") != 0 &&
            _wcsicmp(value, L"off") != 0;
   }();
@@ -171,8 +181,10 @@ void reset()
   clear(g_Counters.directoryNoMoreFiles);
   clear(g_Counters.directoryNoSuchFile);
   clear(g_Counters.directoryOtherStatus);
-  for (auto& value : g_Counters.directoryBufferBuckets) clear(value);
-  for (auto& value : g_Counters.directoryInformationClasses) clear(value);
+  for (auto& value : g_Counters.directoryBufferBuckets)
+    clear(value);
+  for (auto& value : g_Counters.directoryInformationClasses)
+    clear(value);
   for (auto& value : g_Counters.sources) {
     value.source.store(nullptr, std::memory_order_relaxed);
     clear(value.acquisitions);
@@ -191,9 +203,10 @@ LONGLONG beginLockWait()
 void lockAcquired(LONGLONG waitStarted, BenaphoreWaitKind waitKind, bool write,
                   const char* source)
 {
-  if (!enabled()) return;
+  if (!enabled())
+    return;
   const LONGLONG acquiredAt = nowTicks();
-  const auto wait = static_cast<unsigned long long>(acquiredAt - waitStarted);
+  const auto wait           = static_cast<unsigned long long>(acquiredAt - waitStarted);
   g_Counters.lockAcquisitions.fetch_add(1, std::memory_order_relaxed);
   (write ? g_Counters.lockWrites : g_Counters.lockReads)
       .fetch_add(1, std::memory_order_relaxed);
@@ -216,15 +229,16 @@ void lockAcquired(LONGLONG waitStarted, BenaphoreWaitKind waitKind, bool write,
     g_HeldLocks[g_HeldLockDepth] = {acquiredAt};
   }
   ++g_HeldLockDepth;
-  updateMax(g_Counters.lockMaxDepth,
-            static_cast<unsigned long long>(g_HeldLockDepth));
+  updateMax(g_Counters.lockMaxDepth, static_cast<unsigned long long>(g_HeldLockDepth));
 }
 
 void lockReleased()
 {
-  if (!enabled() || g_HeldLockDepth == 0) return;
+  if (!enabled() || g_HeldLockDepth == 0)
+    return;
   --g_HeldLockDepth;
-  if (g_HeldLockDepth >= g_HeldLocks.size()) return;
+  if (g_HeldLockDepth >= g_HeldLocks.size())
+    return;
   const auto hold = static_cast<unsigned long long>(
       nowTicks() - g_HeldLocks[g_HeldLockDepth].acquiredAt);
   g_Counters.lockHoldTicks.fetch_add(hold, std::memory_order_relaxed);
@@ -232,17 +246,20 @@ void lockReleased()
 }
 
 void directoryQuery(bool extendedApi, ULONG informationClass, ULONG bufferLength,
-                    bool singleEntry, bool restartScan,
-                    const UNICODE_STRING* fileName, bool firstSearch,
-                    size_t virtualFilesRemaining, LONG result)
+                    bool singleEntry, bool restartScan, const UNICODE_STRING* fileName,
+                    bool firstSearch, size_t virtualFilesRemaining, LONG result)
 {
-  if (!enabled()) return;
+  if (!enabled())
+    return;
   g_Counters.directoryQueries.fetch_add(1, std::memory_order_relaxed);
   (extendedApi ? g_Counters.directoryExtended : g_Counters.directoryLegacy)
       .fetch_add(1, std::memory_order_relaxed);
-  if (singleEntry) g_Counters.directorySingle.fetch_add(1, std::memory_order_relaxed);
-  if (restartScan) g_Counters.directoryRestart.fetch_add(1, std::memory_order_relaxed);
-  if (firstSearch) g_Counters.directoryFirstSearch.fetch_add(1, std::memory_order_relaxed);
+  if (singleEntry)
+    g_Counters.directorySingle.fetch_add(1, std::memory_order_relaxed);
+  if (restartScan)
+    g_Counters.directoryRestart.fetch_add(1, std::memory_order_relaxed);
+  if (firstSearch)
+    g_Counters.directoryFirstSearch.fetch_add(1, std::memory_order_relaxed);
   if (virtualFilesRemaining > 0)
     g_Counters.directoryVirtualRemaining.fetch_add(1, std::memory_order_relaxed);
 
@@ -277,22 +294,24 @@ void directoryQuery(bool extendedApi, ULONG informationClass, ULONG bufferLength
 
 void emitSummary()
 {
-  if (!enabled()) return;
+  if (!enabled())
+    return;
   LARGE_INTEGER frequency{};
   ::QueryPerformanceFrequency(&frequency);
   auto logger = spdlog::get("usvfs");
-  if (!logger) return;
+  if (!logger)
+    return;
 
   logger->info(
       "[profile] format=1 kind=context_lock pid={} qpc_frequency={} acquisitions={} "
       "reads={} writes={} recursive={} contended={} wait_ticks={} max_wait_ticks={} "
       "hold_ticks={} max_hold_ticks={} max_depth={}",
-      ::GetCurrentProcessId(), frequency.QuadPart,
-      g_Counters.lockAcquisitions.load(), g_Counters.lockReads.load(),
-      g_Counters.lockWrites.load(), g_Counters.lockRecursive.load(),
-      g_Counters.lockContended.load(), g_Counters.lockWaitTicks.load(),
-      g_Counters.lockMaxWaitTicks.load(), g_Counters.lockHoldTicks.load(),
-      g_Counters.lockMaxHoldTicks.load(), g_Counters.lockMaxDepth.load());
+      ::GetCurrentProcessId(), frequency.QuadPart, g_Counters.lockAcquisitions.load(),
+      g_Counters.lockReads.load(), g_Counters.lockWrites.load(),
+      g_Counters.lockRecursive.load(), g_Counters.lockContended.load(),
+      g_Counters.lockWaitTicks.load(), g_Counters.lockMaxWaitTicks.load(),
+      g_Counters.lockHoldTicks.load(), g_Counters.lockMaxHoldTicks.load(),
+      g_Counters.lockMaxDepth.load());
 
   logger->info(
       "[profile] format=1 kind=directory_query pid={} total={} legacy={} ex={} "
@@ -303,14 +322,11 @@ void emitSummary()
       ::GetCurrentProcessId(), g_Counters.directoryQueries.load(),
       g_Counters.directoryLegacy.load(), g_Counters.directoryExtended.load(),
       g_Counters.directorySingle.load(), g_Counters.directoryRestart.load(),
-      g_Counters.directoryNullPattern.load(),
-      g_Counters.directoryExactPattern.load(),
+      g_Counters.directoryNullPattern.load(), g_Counters.directoryExactPattern.load(),
       g_Counters.directoryWildcardPattern.load(),
       g_Counters.directoryFirstSearch.load(),
-      g_Counters.directoryVirtualRemaining.load(),
-      g_Counters.directorySuccess.load(),
-      g_Counters.directoryNoMoreFiles.load(),
-      g_Counters.directoryNoSuchFile.load(),
+      g_Counters.directoryVirtualRemaining.load(), g_Counters.directorySuccess.load(),
+      g_Counters.directoryNoMoreFiles.load(), g_Counters.directoryNoSuchFile.load(),
       g_Counters.directoryOtherStatus.load(),
       g_Counters.directoryBufferBuckets[0].load(),
       g_Counters.directoryBufferBuckets[1].load(),
@@ -328,16 +344,15 @@ void emitSummary()
     }
   }
   for (const auto& source : g_Counters.sources) {
-    const char* name = source.source.load();
+    const char* name        = source.source.load();
     const auto acquisitions = source.acquisitions.load();
     if (name != nullptr && acquisitions != 0) {
       logger->info("[profile] format=1 kind=context_lock_source pid={} source={} "
                    "acquisitions={} contended={} wait_ticks={} max_wait_ticks={}",
-                   ::GetCurrentProcessId(), name, acquisitions,
-                   source.contended.load(), source.waitTicks.load(),
-                   source.maxWaitTicks.load());
+                   ::GetCurrentProcessId(), name, acquisitions, source.contended.load(),
+                   source.waitTicks.load(), source.maxWaitTicks.load());
     }
   }
 }
 
-}
+}  // namespace usvfs::profiling
