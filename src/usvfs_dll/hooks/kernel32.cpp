@@ -709,7 +709,7 @@ BOOL WINAPI usvfs::hook_MoveFileW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFileN
 
     if (res) {
       readReroute.removeMapping(
-          READ_CONTEXT(), isDirectory);  // Updating the rerouteCreate to check deleted
+          WRITE_CONTEXT(), isDirectory);  // Updating the rerouteCreate to check deleted
                                          // file entries should make this okay
 
       if (writeReroute.newReroute()) {
@@ -842,7 +842,7 @@ BOOL WINAPI usvfs::hook_MoveFileExW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFil
 
     if (res) {
       readReroute.removeMapping(
-          READ_CONTEXT(), isDirectory);  // Updating the rerouteCreate to check deleted
+          WRITE_CONTEXT(), isDirectory);  // Updating the rerouteCreate to check deleted
                                          // file entries should make this okay
 
       if (writeReroute.newReroute()) {
@@ -993,7 +993,7 @@ BOOL WINAPI usvfs::hook_MoveFileWithProgressW(LPCWSTR lpExistingFileName,
       // it, but deleteFile can't be disabled since we are relying on it in case of
       // MOVEFILE_REPLACE_EXISTING for the destination file.
       readReroute.removeMapping(
-          READ_CONTEXT(),
+          WRITE_CONTEXT(),
           isDirectory);  // Updating the rerouteCreate to check deleted file entries
                          // should make this okay (not related to comments above)
 

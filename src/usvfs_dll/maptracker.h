@@ -164,7 +164,7 @@ public:
     }
   }
 
-  void removeMapping(const HookContext::ConstPtr& readContext, bool directory = false)
+  void removeMapping(const HookContext::Ptr& writeContext, bool directory = false)
   {
     bool addToDelete     = false;
     bool dontAddToDelete = false;
@@ -179,7 +179,7 @@ public:
           [&](const RedirectionTree::NodePtrT& node) {
             visitor(node);
           };
-      readContext->redirectionTable()->visitPath(m_RealPath, visitorWrapper);
+      writeContext->redirectionTable()->visitPath(m_RealPath, visitorWrapper);
       if (visitor.target.get())
         found = true;
     }
