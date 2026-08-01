@@ -352,14 +352,27 @@ TEST_F(USVFSTest, NtQueryDirectoryFileFindsVirtualFile)
 
   usvfs::UnicodeString fileName(L"np.exe");
 
-  usvfs::hook_NtQueryDirectoryFile(hdl, nullptr, nullptr, nullptr, &status, buffer,
-                                   1024, FileDirectoryInformation, TRUE,
-                                   static_cast<PUNICODE_STRING>(fileName), TRUE);
+  NTSTATUS queryResult = usvfs::hook_NtQueryDirectoryFile(
+      hdl, nullptr, nullptr, nullptr, &status, buffer, 1024,
+      FileDirectoryInformation, TRUE, static_cast<PUNICODE_STRING>(fileName), TRUE);
 
   FILE_DIRECTORY_INFORMATION* info =
       reinterpret_cast<FILE_DIRECTORY_INFORMATION*>(buffer);
+  ASSERT_EQ(STATUS_SUCCESS, queryResult);
   ASSERT_EQ(STATUS_SUCCESS, status.Status);
   ASSERT_EQ(0, wcscmp(info->FileName, L"np.exe"));
+
+  queryResult = usvfs::hook_NtQueryDirectoryFile(
+      hdl, nullptr, nullptr, nullptr, &status, buffer, 1024,
+      FileDirectoryInformation, TRUE, static_cast<PUNICODE_STRING>(fileName), FALSE);
+  ASSERT_EQ(STATUS_NO_MORE_FILES, queryResult);
+  ASSERT_EQ(STATUS_NO_MORE_FILES, status.Status);
+
+  queryResult = usvfs::hook_NtQueryDirectoryFile(
+      hdl, nullptr, nullptr, nullptr, &status, buffer, 1024,
+      FileDirectoryInformation, TRUE, static_cast<PUNICODE_STRING>(fileName), TRUE);
+  ASSERT_EQ(STATUS_SUCCESS, queryResult);
+  ASSERT_EQ(STATUS_SUCCESS, status.Status);
 
   usvfs::hook_NtClose(hdl);
 }
