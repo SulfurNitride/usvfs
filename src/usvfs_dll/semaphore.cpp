@@ -14,12 +14,14 @@ RecursiveBenaphore::~RecursiveBenaphore()
   ::CloseHandle(m_Semaphore);
 }
 
-void RecursiveBenaphore::wait(DWORD timeout)
+BenaphoreWaitKind RecursiveBenaphore::wait(DWORD timeout)
 {
   DWORD tid = ::GetCurrentThreadId();
+  BenaphoreWaitKind result = BenaphoreWaitKind::Uncontended;
 
   if (::_InterlockedIncrement(&m_Counter) > 1) {
     if (tid != m_OwnerId) {
+      result = BenaphoreWaitKind::Contended;
       int tries = 3;
       while (::WaitForSingleObject(m_Semaphore, timeout) != WAIT_OBJECT_0) {
         HANDLE owner = ::OpenThread(SYNCHRONIZE, FALSE, m_OwnerId);
@@ -35,10 +37,13 @@ void RecursiveBenaphore::wait(DWORD timeout)
           --tries;
         }
       }
+    } else {
+      result = BenaphoreWaitKind::Recursive;
     }
   }
   m_OwnerId = tid;
   ++m_Recursion;
+  return result;
 }
 
 void RecursiveBenaphore::signal()

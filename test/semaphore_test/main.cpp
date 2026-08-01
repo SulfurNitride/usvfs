@@ -17,6 +17,9 @@ TEST(RecursiveBenaphoreTest, RecursiveOwnerExcludesAnotherThread)
   std::promise<void> releaseFinally;
   std::promise<void> waiterStarted;
   std::promise<void> waiterAcquired;
+  BenaphoreWaitKind ownerFirstResult{};
+  BenaphoreWaitKind ownerRecursiveResult{};
+  BenaphoreWaitKind waiterResult{};
 
   auto ownerAcquiredFuture  = ownerAcquired.get_future();
   auto releaseOnceFuture    = releaseOnce.get_future();
@@ -26,8 +29,8 @@ TEST(RecursiveBenaphoreTest, RecursiveOwnerExcludesAnotherThread)
   auto waiterAcquiredFuture = waiterAcquired.get_future();
 
   std::thread owner([&]() {
-    mutex.wait();
-    mutex.wait();
+    ownerFirstResult     = mutex.wait();
+    ownerRecursiveResult = mutex.wait();
     ownerAcquired.set_value();
 
     releaseOnceFuture.wait();
@@ -41,7 +44,7 @@ TEST(RecursiveBenaphoreTest, RecursiveOwnerExcludesAnotherThread)
   ownerAcquiredFuture.wait();
   std::thread waiter([&]() {
     waiterStarted.set_value();
-    mutex.wait();
+    waiterResult = mutex.wait();
     waiterAcquired.set_value();
     mutex.signal();
   });
@@ -58,4 +61,8 @@ TEST(RecursiveBenaphoreTest, RecursiveOwnerExcludesAnotherThread)
 
   owner.join();
   waiter.join();
+
+  EXPECT_EQ(ownerFirstResult, BenaphoreWaitKind::Uncontended);
+  EXPECT_EQ(ownerRecursiveResult, BenaphoreWaitKind::Recursive);
+  EXPECT_EQ(waiterResult, BenaphoreWaitKind::Contended);
 }

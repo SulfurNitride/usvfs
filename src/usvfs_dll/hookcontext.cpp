@@ -22,6 +22,7 @@ along with usvfs. If not, see <http://www.gnu.org/licenses/>.
 #include "exceptionex.h"
 #include "hookcallcontext.h"
 #include "loghelpers.h"
+#include "profiling.h"
 #include "usvfs.h"
 #include <shared_memory.h>
 #include <sharedparameters.h>
@@ -78,6 +79,10 @@ HookContext::HookContext(const usvfsParameters& params, HMODULE module)
 
   s_Instance = this;
 
+  if (profiling::enabled()) {
+    profiling::reset();
+  }
+
   if (m_Tree.get() == nullptr) {
     USVFS_THROW_EXCEPTION(usage_error()
                           << ex_msg("shm not found") << ex_msg(params.instanceName));
@@ -91,6 +96,7 @@ void HookContext::remove(const char* instanceName)
 
 HookContext::~HookContext()
 {
+  profiling::emitSummary();
   spdlog::get("usvfs")->info("releasing hook context");
 
   s_Instance           = nullptr;
@@ -128,20 +134,24 @@ SharedParameters* HookContext::retrieveParameters(const usvfsParameters& params)
   return res.first;
 }
 
-HookContext::ConstPtr HookContext::readAccess(const char*)
+HookContext::ConstPtr HookContext::readAccess(const char* source)
 {
   BOOST_ASSERT(s_Instance != nullptr);
 
   // TODO: this should be a shared mutex!
-  s_Instance->m_Mutex.wait(200);
+  const auto waitStarted = profiling::beginLockWait();
+  const auto waitKind    = s_Instance->m_Mutex.wait(200);
+  profiling::lockAcquired(waitStarted, waitKind, false, source);
   return ConstPtr(s_Instance, unlockShared);
 }
 
-HookContext::Ptr HookContext::writeAccess(const char*)
+HookContext::Ptr HookContext::writeAccess(const char* source)
 {
   BOOST_ASSERT(s_Instance != nullptr);
 
-  s_Instance->m_Mutex.wait(200);
+  const auto waitStarted = profiling::beginLockWait();
+  const auto waitKind    = s_Instance->m_Mutex.wait(200);
+  profiling::lockAcquired(waitStarted, waitKind, true, source);
   return Ptr(s_Instance, unlock);
 }
 
@@ -306,11 +316,13 @@ std::vector<std::future<int>>& HookContext::delayed()
 
 void HookContext::unlock(HookContext* instance)
 {
+  profiling::lockReleased();
   instance->m_Mutex.signal();
 }
 
 void HookContext::unlockShared(const HookContext* instance)
 {
+  profiling::lockReleased();
   instance->m_Mutex.signal();
 }
 

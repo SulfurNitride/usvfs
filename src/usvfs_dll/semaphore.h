@@ -6,6 +6,13 @@
 // undefined behaviour over deadlock. It's utterly broken
 // and needs to be replaced in time.
 
+enum class BenaphoreWaitKind
+{
+  Uncontended,
+  Recursive,
+  Contended
+};
+
 class RecursiveBenaphore
 {
 
@@ -16,7 +23,7 @@ public:
   // wait on the semaphore. after timeout this will check if the current owner
   // thread is still alive and steal the semaphore if it isn't. Otherwise this
   // will continue to wait.
-  void wait(DWORD timeout = INFINITE);
+  BenaphoreWaitKind wait(DWORD timeout = INFINITE);
   void signal();
 
 private:
