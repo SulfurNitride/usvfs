@@ -18,11 +18,11 @@ TEST(RecursiveBenaphoreTest, RecursiveOwnerExcludesAnotherThread)
   std::promise<void> waiterStarted;
   std::promise<void> waiterAcquired;
 
-  auto ownerAcquiredFuture = ownerAcquired.get_future();
-  auto releaseOnceFuture = releaseOnce.get_future();
-  auto releasedOnceFuture = releasedOnce.get_future();
+  auto ownerAcquiredFuture  = ownerAcquired.get_future();
+  auto releaseOnceFuture    = releaseOnce.get_future();
+  auto releasedOnceFuture   = releasedOnce.get_future();
   auto releaseFinallyFuture = releaseFinally.get_future();
-  auto waiterStartedFuture = waiterStarted.get_future();
+  auto waiterStartedFuture  = waiterStarted.get_future();
   auto waiterAcquiredFuture = waiterAcquired.get_future();
 
   std::thread owner([&]() {
