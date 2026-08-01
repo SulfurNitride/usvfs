@@ -3,7 +3,10 @@
 
 RecursiveBenaphore::RecursiveBenaphore() : m_Counter(0), m_OwnerId(0UL), m_Recursion(0)
 {
-  m_Semaphore = ::CreateSemaphore(nullptr, 1, 1, nullptr);
+  // The counter represents owners plus waiters. The first owner enters without
+  // waiting; therefore the semaphore must begin non-signaled and be released
+  // only when that owner leaves while a waiter exists.
+  m_Semaphore = ::CreateSemaphore(nullptr, 0, 1, nullptr);
 }
 
 RecursiveBenaphore::~RecursiveBenaphore()
