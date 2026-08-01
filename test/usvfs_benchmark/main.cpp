@@ -333,7 +333,7 @@ stdfs::path executablePath()
 int runController(const Options& options)
 {
   const auto dll =
-      test::path_of_usvfs_lib(test::platform_dependant_executable("usvfs", "dll"));
+      test::path_of_test_bin(test::platform_dependant_executable("usvfs", "dll"));
   test::ScopedLoadLibrary loadDll(dll.c_str());
   if (!loadDll) {
     std::wcerr << L"Could not load " << dll << L" (error " << GetLastError() << L").\n";

@@ -5,6 +5,11 @@ worker inside USVFS. It is not a replacement for a real game benchmark. Its
 purpose is to replay fixed operations quickly after game profiling identifies a
 hot request shape.
 
+Place the benchmark executable and its matching architecture/configuration
+`usvfs` DLL in the same directory. Unlike the repository's test runners, the
+standalone benchmark does not depend on the build-tree `test/bin` and `lib`
+layout.
+
 The corpus has configurable logical-file, directory and layer counts. Ten per
 cent of the logical file count is additionally written to every layer under the
 same virtual name, providing deterministic priority collisions. Every file
