@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+
+add_executable(usvfs_benchmark main.cpp)
+usvfs_set_test_properties(usvfs_benchmark)
+usvfs_target_link_usvfs(usvfs_benchmark)
+target_link_libraries(usvfs_benchmark PRIVATE test_utils)

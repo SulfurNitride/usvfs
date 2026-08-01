@@ -1,0 +1,35 @@
+# USVFS generated loose-file benchmark
+
+`usvfs_benchmark` creates a deterministic, opt-in loose-file corpus and runs a
+worker inside USVFS. It is not a replacement for a real game benchmark. Its
+purpose is to replay fixed operations quickly after game profiling identifies a
+hot request shape.
+
+The corpus has configurable logical-file, directory and layer counts. Ten per
+cent of the logical file count is additionally written to every layer under the
+same virtual name, providing deterministic priority collisions. Every file
+contains its source-layer byte so the worker can verify the selected mapping.
+
+Example from a Windows shell, or under Wine using Windows paths:
+
+```text
+set FLUORINE_USVFS_PROFILE=1
+usvfs_benchmark_x64.exe --generate ^
+  --root Z:\tmp\usvfs-corpus-100k ^
+  --output Z:\tmp\usvfs-corpus-100k.jsonl ^
+  --files 100000 --directories 4096 --layers 8 ^
+  --iterations 3 --threads 8 --seed 6148352776335410510
+```
+
+Use a new root when changing corpus parameters. Generation refuses to touch an
+existing directory unless it contains the benchmark marker with exactly the
+requested configuration; the tool never recursively deletes a corpus.
+
+JSON Lines output records mapping construction, existing/missing attribute
+lookups, one-byte opens, exact-name searches, full directory enumeration and a
+mixed concurrent workload. The adjacent `.usvfs.log` contains profiler summary
+records when the profiling environment variable is enabled.
+
+For comparisons, generate once, alternate DLL A/B/A/B/A/B against the same
+corpus, and report median, range and median absolute deviation. Run 100K first;
+1M is supported but consumes substantially more inodes and setup time.
