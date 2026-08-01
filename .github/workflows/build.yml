@@ -122,6 +122,8 @@ jobs:
           path: ./test/bin
       - run: ./test/bin/shared_test_${{ matrix.arch }}.exe
         if: always()
+      - run: ./test/bin/semaphore_test_${{ matrix.arch }}.exe
+        if: always()
       - run: ./test/bin/testinject_bin_${{ matrix.arch }}.exe
         if: always()
       - run: ./test/bin/thooklib_test_${{ matrix.arch }}.exe
