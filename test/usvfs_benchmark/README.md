@@ -30,6 +30,12 @@ lookups, one-byte opens, exact-name searches, full directory enumeration and a
 mixed concurrent workload. The adjacent `.usvfs.log` contains profiler summary
 records when the profiling environment variable is enabled.
 
+The `_cold` labels mean the first pass in that hooked worker and `_warm` means
+an immediate repeat. They do not claim a physically cold kernel page cache; the
+tool never drops global caches. Directory-walk correctness checks the complete
+unique merged name set and exact collision winners, not just successful API
+return codes.
+
 For comparisons, generate once, alternate DLL A/B/A/B/A/B against the same
 corpus, and report median, range and median absolute deviation. Run 100K first;
 1M is supported but consumes substantially more inodes and setup time.

@@ -45,6 +45,19 @@ namespace
     std::atomic<unsigned long long> directoryNoMoreFiles{0};
     std::atomic<unsigned long long> directoryNoSuchFile{0};
     std::atomic<unsigned long long> directoryOtherStatus{0};
+    std::atomic<unsigned long long> parentDirectoryOpens{0};
+    std::atomic<unsigned long long> parentDirectoryOpenFailures{0};
+    std::atomic<unsigned long long> parentDirectoryOpenTicks{0};
+    std::atomic<unsigned long long> parentDirectoryOpenMaxTicks{0};
+    std::atomic<unsigned long long> regularBackingQueries{0};
+    std::atomic<unsigned long long> regularBackingQueryTicks{0};
+    std::atomic<unsigned long long> regularBackingQueryMaxTicks{0};
+    std::atomic<unsigned long long> virtualBackingQueries{0};
+    std::atomic<unsigned long long> virtualBackingQueryTicks{0};
+    std::atomic<unsigned long long> virtualBackingQueryMaxTicks{0};
+    std::atomic<unsigned long long> backingQuerySuccess{0};
+    std::atomic<unsigned long long> backingQueryNoMoreFiles{0};
+    std::atomic<unsigned long long> backingQueryOtherStatus{0};
     std::array<std::atomic<unsigned long long>, 6> directoryBufferBuckets{};
     std::array<std::atomic<unsigned long long>, InformationClassCount>
         directoryInformationClasses{};
@@ -181,6 +194,19 @@ void reset()
   clear(g_Counters.directoryNoMoreFiles);
   clear(g_Counters.directoryNoSuchFile);
   clear(g_Counters.directoryOtherStatus);
+  clear(g_Counters.parentDirectoryOpens);
+  clear(g_Counters.parentDirectoryOpenFailures);
+  clear(g_Counters.parentDirectoryOpenTicks);
+  clear(g_Counters.parentDirectoryOpenMaxTicks);
+  clear(g_Counters.regularBackingQueries);
+  clear(g_Counters.regularBackingQueryTicks);
+  clear(g_Counters.regularBackingQueryMaxTicks);
+  clear(g_Counters.virtualBackingQueries);
+  clear(g_Counters.virtualBackingQueryTicks);
+  clear(g_Counters.virtualBackingQueryMaxTicks);
+  clear(g_Counters.backingQuerySuccess);
+  clear(g_Counters.backingQueryNoMoreFiles);
+  clear(g_Counters.backingQueryOtherStatus);
   for (auto& value : g_Counters.directoryBufferBuckets)
     clear(value);
   for (auto& value : g_Counters.directoryInformationClasses)
@@ -196,6 +222,11 @@ void reset()
 }
 
 LONGLONG beginLockWait()
+{
+  return enabled() ? nowTicks() : 0;
+}
+
+LONGLONG beginOperation()
 {
   return enabled() ? nowTicks() : 0;
 }
@@ -293,6 +324,41 @@ void directoryQuery(bool extendedApi, ULONG informationClass, ULONG bufferLength
     g_Counters.directoryOtherStatus.fetch_add(1, std::memory_order_relaxed);
 }
 
+void parentDirectoryOpen(LONGLONG started, bool success)
+{
+  if (!enabled())
+    return;
+  const auto elapsed = static_cast<unsigned long long>(nowTicks() - started);
+  g_Counters.parentDirectoryOpens.fetch_add(1, std::memory_order_relaxed);
+  if (!success)
+    g_Counters.parentDirectoryOpenFailures.fetch_add(1, std::memory_order_relaxed);
+  g_Counters.parentDirectoryOpenTicks.fetch_add(elapsed, std::memory_order_relaxed);
+  updateMax(g_Counters.parentDirectoryOpenMaxTicks, elapsed);
+}
+
+void backingDirectoryQuery(LONGLONG started, bool virtualQuery, LONG result)
+{
+  if (!enabled())
+    return;
+  const auto elapsed = static_cast<unsigned long long>(nowTicks() - started);
+  if (virtualQuery) {
+    g_Counters.virtualBackingQueries.fetch_add(1, std::memory_order_relaxed);
+    g_Counters.virtualBackingQueryTicks.fetch_add(elapsed, std::memory_order_relaxed);
+    updateMax(g_Counters.virtualBackingQueryMaxTicks, elapsed);
+  } else {
+    g_Counters.regularBackingQueries.fetch_add(1, std::memory_order_relaxed);
+    g_Counters.regularBackingQueryTicks.fetch_add(elapsed, std::memory_order_relaxed);
+    updateMax(g_Counters.regularBackingQueryMaxTicks, elapsed);
+  }
+  const auto status = static_cast<unsigned long>(result);
+  if (status == 0x00000000UL)
+    g_Counters.backingQuerySuccess.fetch_add(1, std::memory_order_relaxed);
+  else if (status == 0x80000006UL)
+    g_Counters.backingQueryNoMoreFiles.fetch_add(1, std::memory_order_relaxed);
+  else
+    g_Counters.backingQueryOtherStatus.fetch_add(1, std::memory_order_relaxed);
+}
+
 void emitSummary()
 {
   if (!enabled())
@@ -335,6 +401,27 @@ void emitSummary()
       g_Counters.directoryBufferBuckets[3].load(),
       g_Counters.directoryBufferBuckets[4].load(),
       g_Counters.directoryBufferBuckets[5].load());
+
+  logger->info("[profile] format=1 kind=directory_work pid={} qpc_frequency={} "
+               "parent_opens={} parent_open_failures={} parent_open_ticks={} "
+               "parent_open_max_ticks={} regular_queries={} regular_query_ticks={} "
+               "regular_query_max_ticks={} virtual_queries={} virtual_query_ticks={} "
+               "virtual_query_max_ticks={} backing_success={} backing_no_more={} "
+               "backing_other_status={}",
+               ::GetCurrentProcessId(), frequency.QuadPart,
+               g_Counters.parentDirectoryOpens.load(),
+               g_Counters.parentDirectoryOpenFailures.load(),
+               g_Counters.parentDirectoryOpenTicks.load(),
+               g_Counters.parentDirectoryOpenMaxTicks.load(),
+               g_Counters.regularBackingQueries.load(),
+               g_Counters.regularBackingQueryTicks.load(),
+               g_Counters.regularBackingQueryMaxTicks.load(),
+               g_Counters.virtualBackingQueries.load(),
+               g_Counters.virtualBackingQueryTicks.load(),
+               g_Counters.virtualBackingQueryMaxTicks.load(),
+               g_Counters.backingQuerySuccess.load(),
+               g_Counters.backingQueryNoMoreFiles.load(),
+               g_Counters.backingQueryOtherStatus.load());
 
   for (size_t i = 0; i < InformationClassCount; ++i) {
     const auto count = g_Counters.directoryInformationClasses[i].load();

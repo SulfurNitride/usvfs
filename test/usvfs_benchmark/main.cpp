@@ -11,15 +11,16 @@
 #include <random>
 #include <string_view>
 #include <thread>
+#include <unordered_set>
 
-namespace fs = std::filesystem;
+namespace stdfs = std::filesystem;
 
 namespace
 {
 struct Options
 {
-  fs::path root;
-  fs::path output;
+  stdfs::path root;
+  stdfs::path output;
   std::size_t files{100000};
   std::size_t directories{4096};
   std::size_t layers{8};
@@ -30,7 +31,7 @@ struct Options
   bool worker{false};
 };
 
-std::wstring quoted(const fs::path& value)
+std::wstring quoted(const stdfs::path& value)
 {
   return L"\"" + value.wstring() + L"\"";
 }
@@ -56,17 +57,17 @@ std::wstring collisionName(std::size_t index)
   return value;
 }
 
-fs::path relativeAsset(std::size_t index, std::size_t directories)
+stdfs::path relativeAsset(std::size_t index, std::size_t directories)
 {
-  return fs::path(bucketName(index, directories)) / assetName(index);
+  return stdfs::path(bucketName(index, directories)) / assetName(index);
 }
 
-fs::path relativeCollision(std::size_t index, std::size_t directories)
+stdfs::path relativeCollision(std::size_t index, std::size_t directories)
 {
-  return fs::path(bucketName(index, directories)) / collisionName(index);
+  return stdfs::path(bucketName(index, directories)) / collisionName(index);
 }
 
-fs::path layerPath(const Options& options, std::size_t layer)
+stdfs::path layerPath(const Options& options, std::size_t layer)
 {
   wchar_t value[32]{};
   swprintf_s(value, L"layer_%03zu", layer);
@@ -104,9 +105,9 @@ void writeResult(std::ofstream& output, std::string_view operation,
   output.flush();
 }
 
-void createFile(const fs::path& path, unsigned char layer)
+void createFile(const stdfs::path& path, unsigned char layer)
 {
-  fs::create_directories(path.parent_path());
+  stdfs::create_directories(path.parent_path());
   std::ofstream stream(path, std::ios::binary | std::ios::trunc);
   if (!stream) {
     throw std::runtime_error("failed to create corpus file");
@@ -116,9 +117,9 @@ void createFile(const fs::path& path, unsigned char layer)
 
 void generateCorpus(const Options& options)
 {
-  const fs::path marker = options.root / L".usvfs-benchmark-corpus";
-  if (fs::exists(options.root)) {
-    if (!fs::exists(marker)) {
+  const stdfs::path marker = options.root / L".usvfs-benchmark-corpus";
+  if (stdfs::exists(options.root)) {
+    if (!stdfs::exists(marker)) {
       throw std::runtime_error(
           "refusing to use an existing directory without the corpus marker");
     }
@@ -136,7 +137,7 @@ void generateCorpus(const Options& options)
     return;
   }
 
-  fs::create_directories(options.root / L"mount");
+  stdfs::create_directories(options.root / L"mount");
   const std::size_t collisionCount = std::max<std::size_t>(1, options.files / 10);
   for (std::size_t index = 0; index < options.files; ++index) {
     const std::size_t layer = index % options.layers;
@@ -156,7 +157,7 @@ void generateCorpus(const Options& options)
          << L" " << options.seed << L"\n";
 }
 
-std::size_t readFirstByte(const fs::path& path, unsigned char* value)
+std::size_t readFirstByte(const stdfs::path& path, unsigned char* value)
 {
   HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ,
                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -170,6 +171,12 @@ std::size_t readFirstByte(const fs::path& path, unsigned char* value)
   return result && read == 1 ? 0 : 1;
 }
 
+std::size_t congruentCount(std::size_t total, std::size_t bucket,
+                           std::size_t directories)
+{
+  return bucket < total ? 1 + (total - 1 - bucket) / directories : 0;
+}
+
 int runWorker(const Options& options)
 {
   std::ofstream output(options.output, std::ios::app);
@@ -178,7 +185,7 @@ int runWorker(const Options& options)
     return 2;
   }
 
-  const fs::path mount             = options.root / L"mount";
+  const stdfs::path mount          = options.root / L"mount";
   const std::size_t collisionCount = std::max<std::size_t>(1, options.files / 10);
   std::atomic<std::size_t> errors{0};
 
@@ -205,8 +212,9 @@ int runWorker(const Options& options)
     measure(pass == 0 ? "attributes_missing_cold" : "attributes_missing_warm",
             options.files, [&](auto& failures) {
               for (std::size_t index = 0; index < options.files; ++index) {
-                const fs::path path = mount / bucketName(index, options.directories) /
-                                      (L"missing_" + std::to_wstring(index) + L".dat");
+                const stdfs::path path =
+                    mount / bucketName(index, options.directories) /
+                    (L"missing_" + std::to_wstring(index) + L".dat");
                 if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
                   ++failures;
                 }
@@ -235,6 +243,9 @@ int runWorker(const Options& options)
                 if (find == INVALID_HANDLE_VALUE) {
                   ++failures;
                 } else {
+                  if (_wcsicmp(data.cFileName, collisionName(index).c_str()) != 0) {
+                    ++failures;
+                  }
                   FindClose(find);
                   unsigned char value = 0;
                   failures += readFirstByte(
@@ -257,12 +268,24 @@ int runWorker(const Options& options)
                   ++failures;
                   continue;
                 }
-                while (FindNextFileW(find, &data)) {
-                }
+                std::unordered_set<std::wstring> names;
+                do {
+                  if (wcscmp(data.cFileName, L".") != 0 &&
+                      wcscmp(data.cFileName, L"..") != 0 &&
+                      !names.insert(data.cFileName).second) {
+                    ++failures;
+                  }
+                } while (FindNextFileW(find, &data));
                 if (GetLastError() != ERROR_NO_MORE_FILES) {
                   ++failures;
                 }
                 FindClose(find);
+                const std::size_t expected =
+                    congruentCount(options.files, index, options.directories) +
+                    congruentCount(collisionCount, index, options.directories);
+                if (names.size() != expected) {
+                  ++failures;
+                }
               }
             });
   }
@@ -278,7 +301,7 @@ int runWorker(const Options& options)
            operation += options.threads) {
         const std::size_t index = random() % options.files;
         const bool missing      = (operation & 3) == 0;
-        fs::path path           = mount / relativeAsset(index, options.directories);
+        stdfs::path path        = mount / relativeAsset(index, options.directories);
         if (missing) {
           path.replace_filename(L"missing_" + std::to_wstring(index) + L".dat");
         }
@@ -298,7 +321,7 @@ int runWorker(const Options& options)
   return errors.load() == 0 ? 0 : 3;
 }
 
-fs::path executablePath()
+stdfs::path executablePath()
 {
   std::wstring buffer(32768, L'\0');
   const DWORD size =
@@ -375,7 +398,7 @@ int runController(const Options& options)
   CloseHandle(process.hProcess);
   usvfsDisconnectVFS();
 
-  fs::path profilePath = options.output;
+  stdfs::path profilePath = options.output;
   profilePath += L".usvfs.log";
   std::ofstream profile(profilePath);
   std::string message(4096, '\0');
@@ -388,6 +411,12 @@ int runController(const Options& options)
 Options parse(int argc, wchar_t** argv)
 {
   Options options;
+  auto sizeValue = [](const std::wstring& text) {
+    const auto parsed = std::stoull(text);
+    if (parsed > std::numeric_limits<std::size_t>::max())
+      throw std::runtime_error("numeric option is too large for this architecture");
+    return static_cast<std::size_t>(parsed);
+  };
   auto value = [&](int& index) -> std::wstring {
     if (++index >= argc)
       throw std::runtime_error("missing option value");
@@ -400,15 +429,15 @@ Options parse(int argc, wchar_t** argv)
     else if (argument == L"--output")
       options.output = value(index);
     else if (argument == L"--files")
-      options.files = std::stoull(value(index));
+      options.files = sizeValue(value(index));
     else if (argument == L"--directories")
-      options.directories = std::stoull(value(index));
+      options.directories = sizeValue(value(index));
     else if (argument == L"--layers")
-      options.layers = std::stoull(value(index));
+      options.layers = sizeValue(value(index));
     else if (argument == L"--iterations")
-      options.iterations = std::stoull(value(index));
+      options.iterations = sizeValue(value(index));
     else if (argument == L"--threads")
-      options.threads = std::stoull(value(index));
+      options.threads = sizeValue(value(index));
     else if (argument == L"--seed")
       options.seed = std::stoull(value(index));
     else if (argument == L"--generate")
@@ -437,7 +466,7 @@ int wmain(int argc, wchar_t** argv)
     }
     if (options.generate)
       generateCorpus(options);
-    if (!fs::exists(options.root / L".usvfs-benchmark-corpus")) {
+    if (!stdfs::exists(options.root / L".usvfs-benchmark-corpus")) {
       throw std::runtime_error("corpus marker is missing; use --generate first");
     }
     return options.worker ? runWorker(options) : runController(options);

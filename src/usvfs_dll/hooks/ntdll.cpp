@@ -492,17 +492,23 @@ bool addVirtualSearchResult(PVOID& FileInformation,
     std::wstring dirName = fullPath.parent_path().wstring();
     if (dirName.length() >= MAX_PATH && !ush::startswith(dirName.c_str(), LR"(\\?\)"))
       dirName = LR"(\\?\)" + dirName;
+    const auto parentOpenStarted = profiling::beginOperation();
     info.currentSearchHandle =
         CreateFileW(dirName.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
                     nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    profiling::parentDirectoryOpen(parentOpenStarted,
+                                   info.currentSearchHandle != INVALID_HANDLE_VALUE);
   }
-  std::wstring fileName = fullPath.filename().wstring();
-  NTSTATUS subRes       = addNtSearchData(
+  std::wstring fileName          = fullPath.filename().wstring();
+  const auto backingQueryStarted = profiling::beginOperation();
+  NTSTATUS subRes                = addNtSearchData(
       info.currentSearchHandle,
       (fileName != L".") ? static_cast<PUNICODE_STRING>(UnicodeString(fileName.c_str()))
-                               : nullptr,
+                                        : nullptr,
       virtualName, FileInformationClass, FileInformation, dataRead, info.foundFiles,
       nullptr, nullptr, nullptr, ReturnSingleEntry);
+  profiling::backingDirectoryQuery(backingQueryStarted, true,
+                                   static_cast<LONG>(subRes));
   if (subRes == STATUS_SUCCESS) {
     return true;
   } else {
@@ -605,9 +611,12 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
     if (handle == INVALID_HANDLE_VALUE) {
       handle = FileHandle;
     }
-    NTSTATUS subRes = addNtSearchData(
+    const auto backingQueryStarted = profiling::beginOperation();
+    NTSTATUS subRes                = addNtSearchData(
         handle, FileName, L"", FileInformationClass, FileInformationCurrent, dataRead,
         infoIter->second.foundFiles, Event, ApcRoutine, ApcContext, ReturnSingleEntry);
+    profiling::backingDirectoryQuery(backingQueryStarted, false,
+                                     static_cast<LONG>(subRes));
     moreRegular = subRes == STATUS_SUCCESS;
     if (moreRegular) {
       dataReturned = dataRead != 0;
@@ -765,11 +774,14 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
     if (handle == INVALID_HANDLE_VALUE) {
       handle = FileHandle;
     }
+    const auto backingQueryStarted = profiling::beginOperation();
     NTSTATUS subRes = addNtSearchData(handle, FileName, L"", FileInformationClass,
                                       FileInformationCurrent, dataRead,
                                       infoIter->second.foundFiles, Event, ApcRoutine,
                                       ApcContext, QueryFlags & SL_RETURN_SINGLE_ENTRY);
-    moreRegular     = subRes == STATUS_SUCCESS;
+    profiling::backingDirectoryQuery(backingQueryStarted, false,
+                                     static_cast<LONG>(subRes));
+    moreRegular = subRes == STATUS_SUCCESS;
     if (moreRegular) {
       dataReturned = dataRead != 0;
     } else {
