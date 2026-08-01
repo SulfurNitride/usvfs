@@ -495,12 +495,11 @@ bool addVirtualSearchResult(PVOID& FileInformation,
         CreateFileW(dirName.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
                     nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
   }
-  std::wstring fileName =
-      ush::string_cast<std::wstring>(fullPath.filename().string(), ush::CodePage::UTF8);
-  NTSTATUS subRes = addNtSearchData(
+  std::wstring fileName = fullPath.filename().wstring();
+  NTSTATUS subRes       = addNtSearchData(
       info.currentSearchHandle,
       (fileName != L".") ? static_cast<PUNICODE_STRING>(UnicodeString(fileName.c_str()))
-                         : nullptr,
+                               : nullptr,
       virtualName, FileInformationClass, FileInformation, dataRead, info.foundFiles,
       nullptr, nullptr, nullptr, ReturnSingleEntry);
   if (subRes == STATUS_SUCCESS) {
@@ -917,14 +916,14 @@ DLLEXPORT NTSTATUS WINAPI usvfs::hook_NtQueryObject(
       }
     }
 
-    auto logger = LOG_CALL()
-                      .PARAMWRAP(res)
-                      .PARAM(ObjectInformationLength)
-                      .addParam("return_length", ReturnLength ? *ReturnLength : -1)
-                      .addParam("tracker_path", trackerInfo)
-                      .PARAM(ObjectInformationClass)
-                      .PARAM(redir.redirected)
-                      .PARAM(redir.path);
+    auto logger = LOG_CALL();
+    logger.PARAMWRAP(res)
+        .PARAM(ObjectInformationLength)
+        .addParam("return_length", ReturnLength ? *ReturnLength : -1)
+        .addParam("tracker_path", trackerInfo)
+        .PARAM(ObjectInformationClass)
+        .PARAM(redir.redirected)
+        .PARAM(redir.path);
 
     if (res == STATUS_SUCCESS) {
       logger.addParam("name_info", info->Name);

@@ -364,6 +364,59 @@ TEST_F(USVFSTest, NtQueryDirectoryFileFindsVirtualFile)
   usvfs::hook_NtClose(hdl);
 }
 
+TEST_F(USVFSTest, NtQueryDirectoryFileFindsWidePhysicalFilename)
+{
+  std::array<wchar_t, MAX_PATH> tempDirectory{};
+  ASSERT_NE(0UL, ::GetTempPathW(static_cast<DWORD>(tempDirectory.size()),
+                                tempDirectory.data()));
+
+  const std::wstring physicalPath = std::wstring(tempDirectory.data()) +
+                                    L"usvfs-\u00e9-\u0416-\u6587\u4ef6-\U0001f680-" +
+                                    std::to_wstring(::GetCurrentProcessId()) + L".txt";
+  struct DeletePhysicalFile
+  {
+    const std::wstring& path;
+    ~DeletePhysicalFile() { ::DeleteFileW(path.c_str()); }
+  } deletePhysicalFile{physicalPath};
+
+  HANDLE physicalFile =
+      ::CreateFileW(physicalPath.c_str(), GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                    CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  ASSERT_NE(INVALID_HANDLE_VALUE, physicalFile);
+  ::CloseHandle(physicalFile);
+
+  auto params = defaultUsvfsParams();
+  std::unique_ptr<usvfs::HookContext> ctx(
+      usvfsCreateHookContext(*params, ::GetModuleHandle(nullptr)));
+  usvfs::RedirectionTreeContainer& tree = ctx->redirectionTable();
+  tree.addFile(L"C:\\usvfs-wide-virtual.txt",
+               usvfs::RedirectionDataLocal(
+                   ush::string_cast<std::string>(physicalPath, ush::CodePage::UTF8)));
+
+  HANDLE hdl =
+      hooked_NtOpenFile(L"C:\\", FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
+  ASSERT_NE(INVALID_HANDLE_VALUE, hdl);
+
+  IO_STATUS_BLOCK status;
+  char buffer[1024];
+  usvfs::UnicodeString fileName(L"usvfs-wide-virtual.txt");
+
+  const NTSTATUS queryResult = usvfs::hook_NtQueryDirectoryFile(
+      hdl, nullptr, nullptr, nullptr, &status, buffer, sizeof(buffer),
+      FileDirectoryInformation, TRUE, static_cast<PUNICODE_STRING>(fileName), TRUE);
+
+  const auto* info = reinterpret_cast<FILE_DIRECTORY_INFORMATION*>(buffer);
+  ASSERT_EQ(STATUS_SUCCESS, queryResult);
+  ASSERT_EQ(STATUS_SUCCESS, status.Status);
+  ASSERT_EQ(
+      L"usvfs-wide-virtual.txt",
+      std::wstring(info->FileName, info->FileNameLength / sizeof(info->FileName[0])));
+
+  usvfs::hook_NtClose(hdl);
+}
+
 TEST_F(USVFSTest, NtQueryDirectoryFileExVirtualFile)
 {
   auto params = defaultUsvfsParams();

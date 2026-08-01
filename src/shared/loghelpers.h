@@ -20,6 +20,8 @@ along with usvfs. If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
 
+#include <atomic>
+
 #include "dllimport.h"
 #include "formatters.h"
 #include "ntdll_declarations.h"
@@ -48,7 +50,12 @@ class CallLogger
 {
 public:
   explicit CallLogger(const char* function)
+      : m_Enabled(s_Enabled.load(std::memory_order_relaxed))
   {
+    if (!m_Enabled) {
+      return;
+    }
+
     const char* namespaceend = strrchr(function, ':');
 
     if (namespaceend != nullptr) {
@@ -60,6 +67,10 @@ public:
 
   ~CallLogger()
   {
+    if (!m_Enabled) {
+      return;
+    }
+
     try {
       static std::shared_ptr<spdlog::logger> log = spdlog::get("hooks");
       log->debug("{}", m_Message);
@@ -71,17 +82,23 @@ public:
   template <typename T>
   CallLogger& addParam(const char* name, const T& value, uint8_t style = 0);
 
+  static void setEnabled(bool enabled) noexcept
+  {
+    s_Enabled.store(enabled, std::memory_order_relaxed);
+  }
+
 private:
+  inline static std::atomic_bool s_Enabled{false};
+  bool m_Enabled;
   std::string m_Message;
 };
 
 template <typename T>
 CallLogger& CallLogger::addParam(const char* name, const T& value, uint8_t style)
 {
-  static bool enabled = spdlog::get("hooks")->should_log(spdlog::level::debug);
   typedef std::underlying_type<DisplayStyle>::type DSType;
 
-  if (enabled) {
+  if (m_Enabled) {
     if constexpr (std::is_pointer_v<T>) {
       if (value == nullptr) {
         std::format_to(std::back_inserter(m_Message), "[{}=<null>]", name);

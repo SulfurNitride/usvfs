@@ -2,10 +2,14 @@
 #include <boost/interprocess/shared_memory_object.hpp>
 #include <boost/predef.h>
 #include <gtest/gtest.h>
+#include <loghelpers.h>
 #include <shared_memory.h>
+#include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/sinks/stdout_sinks.h>
 #include <wildcard.h>
 #include <windows_sane.h>
+
+#include <sstream>
 
 #define PRIVATE public
 #include <directory_tree.h>
@@ -91,6 +95,29 @@ TEST(WildcardTest, MatchWildcard)
   EXPECT_EQ('\0', *wildcard::PartialMatch("abc.def", "*"));
 
   EXPECT_FALSE(wildcard::Match(TEXT("abc"), TEXT("b*")));
+}
+
+TEST(CallLoggerTest, DisabledFastPathTracksRuntimeState)
+{
+  std::ostringstream output;
+  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
+  auto hooksLogger = std::make_shared<spdlog::logger>("hooks", sink);
+  hooksLogger->set_level(spdlog::level::debug);
+  hooksLogger->set_pattern("%v");
+  spdlog::register_logger(hooksLogger);
+
+  usvfs::log::CallLogger::setEnabled(false);
+  { usvfs::log::CallLogger("scope::disabled").addParam("value", 1); }
+  hooksLogger->flush();
+  EXPECT_TRUE(output.str().empty());
+
+  usvfs::log::CallLogger::setEnabled(true);
+  { usvfs::log::CallLogger("scope::enabled").addParam("value", 2); }
+  hooksLogger->flush();
+  EXPECT_NE(std::string::npos, output.str().find("enabled[value=2]"));
+
+  usvfs::log::CallLogger::setEnabled(false);
+  spdlog::drop("hooks");
 }
 
 TEST(DirectoryTreeTest, SimpleTreeInit)

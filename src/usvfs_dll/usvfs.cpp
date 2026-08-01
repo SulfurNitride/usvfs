@@ -194,8 +194,10 @@ extern "C" DLLEXPORT bool WINAPI usvfsGetLogMessages(LPSTR buffer, size_t size,
 
 void SetLogLevel(LogLevel level)
 {
-  spdlog::get("usvfs")->set_level(ConvertLogLevel(level));
-  spdlog::get("hooks")->set_level(ConvertLogLevel(level));
+  const auto spdLevel = ConvertLogLevel(level);
+  spdlog::get("usvfs")->set_level(spdLevel);
+  spdlog::get("hooks")->set_level(spdLevel);
+  usvfs::log::CallLogger::setEnabled(spdLevel == spdlog::level::debug);
 }
 
 void WINAPI usvfsUpdateParameters(usvfsParameters* p)
