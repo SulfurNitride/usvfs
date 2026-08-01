@@ -499,7 +499,7 @@ bool addVirtualSearchResult(PVOID& FileInformation,
   NTSTATUS subRes       = addNtSearchData(
       info.currentSearchHandle,
       (fileName != L".") ? static_cast<PUNICODE_STRING>(UnicodeString(fileName.c_str()))
-                               : nullptr,
+                         : nullptr,
       virtualName, FileInformationClass, FileInformation, dataRead, info.foundFiles,
       nullptr, nullptr, nullptr, ReturnSingleEntry);
   if (subRes == STATUS_SUCCESS) {

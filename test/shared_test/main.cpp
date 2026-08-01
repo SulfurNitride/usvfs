@@ -100,19 +100,23 @@ TEST(WildcardTest, MatchWildcard)
 TEST(CallLoggerTest, DisabledFastPathTracksRuntimeState)
 {
   std::ostringstream output;
-  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
+  auto sink        = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
   auto hooksLogger = std::make_shared<spdlog::logger>("hooks", sink);
   hooksLogger->set_level(spdlog::level::debug);
   hooksLogger->set_pattern("%v");
   spdlog::register_logger(hooksLogger);
 
   usvfs::log::CallLogger::setEnabled(false);
-  { usvfs::log::CallLogger("scope::disabled").addParam("value", 1); }
+  {
+    usvfs::log::CallLogger("scope::disabled").addParam("value", 1);
+  }
   hooksLogger->flush();
   EXPECT_TRUE(output.str().empty());
 
   usvfs::log::CallLogger::setEnabled(true);
-  { usvfs::log::CallLogger("scope::enabled").addParam("value", 2); }
+  {
+    usvfs::log::CallLogger("scope::enabled").addParam("value", 2);
+  }
   hooksLogger->flush();
   EXPECT_NE(std::string::npos, output.str().find("enabled[value=2]"));
 
