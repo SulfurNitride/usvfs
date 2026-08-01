@@ -169,6 +169,7 @@ private:
 
   //  mutable std::recursive_mutex m_Mutex;
   mutable RecursiveBenaphore m_Mutex;
+  mutable RecursiveSharedMutex m_SharedMutex;
 };
 
 }  // namespace usvfs

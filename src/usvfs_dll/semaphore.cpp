@@ -63,3 +63,80 @@ void RecursiveBenaphore::signal()
     }
   }
 }
+
+thread_local RecursiveSharedMutex* RecursiveSharedMutex::s_CurrentLock = nullptr;
+thread_local unsigned int RecursiveSharedMutex::s_SharedDepth          = 0;
+thread_local unsigned int RecursiveSharedMutex::s_ExclusiveDepth       = 0;
+
+RecursiveSharedMutex::RecursiveSharedMutex()
+{
+  ::InitializeSRWLock(&m_Lock);
+}
+
+BenaphoreWaitKind RecursiveSharedMutex::lockShared()
+{
+  if (s_CurrentLock == this) {
+    BOOST_ASSERT(s_SharedDepth > 0 || s_ExclusiveDepth > 0);
+    ++s_SharedDepth;
+    return BenaphoreWaitKind::Recursive;
+  }
+  if (s_CurrentLock != nullptr)
+    throw std::logic_error("nested recursive shared mutexes are unsupported");
+
+  BenaphoreWaitKind result = BenaphoreWaitKind::Uncontended;
+  if (!::TryAcquireSRWLockShared(&m_Lock)) {
+    result = BenaphoreWaitKind::Contended;
+    ::AcquireSRWLockShared(&m_Lock);
+  }
+  s_CurrentLock = this;
+  s_SharedDepth = 1;
+  return result;
+}
+
+BenaphoreWaitKind RecursiveSharedMutex::lockExclusive()
+{
+  if (s_CurrentLock == this) {
+    if (s_ExclusiveDepth == 0)
+      throw std::logic_error("recursive shared mutex upgrade is unsupported");
+    ++s_ExclusiveDepth;
+    return BenaphoreWaitKind::Recursive;
+  }
+  if (s_CurrentLock != nullptr)
+    throw std::logic_error("nested recursive shared mutexes are unsupported");
+
+  BenaphoreWaitKind result = BenaphoreWaitKind::Uncontended;
+  if (!::TryAcquireSRWLockExclusive(&m_Lock)) {
+    result = BenaphoreWaitKind::Contended;
+    ::AcquireSRWLockExclusive(&m_Lock);
+  }
+  s_CurrentLock    = this;
+  s_ExclusiveDepth = 1;
+  m_ExclusiveOwner.store(::GetCurrentThreadId(), std::memory_order_release);
+  return result;
+}
+
+void RecursiveSharedMutex::unlockShared()
+{
+  BOOST_ASSERT(s_CurrentLock == this && s_SharedDepth > 0);
+  if (--s_SharedDepth != 0)
+    return;
+  if (s_ExclusiveDepth != 0)
+    return;
+
+  s_CurrentLock = nullptr;
+  ::ReleaseSRWLockShared(&m_Lock);
+}
+
+void RecursiveSharedMutex::unlockExclusive()
+{
+  BOOST_ASSERT(s_CurrentLock == this && s_ExclusiveDepth > 0);
+  BOOST_ASSERT(m_ExclusiveOwner.load(std::memory_order_acquire) ==
+               ::GetCurrentThreadId());
+  if (--s_ExclusiveDepth != 0)
+    return;
+
+  BOOST_ASSERT(s_SharedDepth == 0);
+  m_ExclusiveOwner.store(0, std::memory_order_release);
+  s_CurrentLock = nullptr;
+  ::ReleaseSRWLockExclusive(&m_Lock);
+}

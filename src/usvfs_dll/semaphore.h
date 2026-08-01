@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+#include <stdexcept>
+
 // based on code by Jeff Preshing
 
 // this is a synchronization class that prefers
@@ -31,4 +34,26 @@ private:
   DWORD m_OwnerId;
   int m_Recursion;
   HANDLE m_Semaphore;
+};
+
+// Recursive reader/writer lock for HookContext's read-mostly redirection tree.
+// A writer may enter a read section recursively. Upgrading a held shared lock
+// to exclusive is deliberately unsupported and asserted in debug builds.
+class RecursiveSharedMutex
+{
+public:
+  RecursiveSharedMutex();
+
+  BenaphoreWaitKind lockShared();
+  BenaphoreWaitKind lockExclusive();
+  void unlockShared();
+  void unlockExclusive();
+
+private:
+  SRWLOCK m_Lock;
+  std::atomic<DWORD> m_ExclusiveOwner{0};
+
+  static thread_local RecursiveSharedMutex* s_CurrentLock;
+  static thread_local unsigned int s_SharedDepth;
+  static thread_local unsigned int s_ExclusiveDepth;
 };

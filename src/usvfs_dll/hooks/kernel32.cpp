@@ -585,7 +585,7 @@ BOOL WINAPI usvfs::hook_DeleteFileW(LPCWSTR lpFileName)
   POST_REALCALL
 
   if (res) {
-    reroute.removeMapping(READ_CONTEXT());
+    reroute.removeMapping(WRITE_CONTEXT());
   }
 
   if (reroute.wasRerouted())
@@ -1240,7 +1240,7 @@ DLLEXPORT BOOL WINAPI usvfs::hook_RemoveDirectoryW(LPCWSTR lpPathName)
   POST_REALCALL
 
   if (res) {
-    reroute.removeMapping(READ_CONTEXT(), true);
+    reroute.removeMapping(WRITE_CONTEXT(), true);
   }
 
   if (reroute.wasRerouted())

@@ -497,15 +497,15 @@ bool addVirtualSearchResult(PVOID& FileInformation,
     info.currentSearchHandle =
         CreateFileW(dirName.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
                     nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    usvfs::profiling::parentDirectoryOpen(
-        parentOpenStarted, info.currentSearchHandle != INVALID_HANDLE_VALUE);
+    usvfs::profiling::parentDirectoryOpen(parentOpenStarted, info.currentSearchHandle !=
+                                                                 INVALID_HANDLE_VALUE);
   }
   std::wstring fileName          = fullPath.filename().wstring();
   const auto backingQueryStarted = usvfs::profiling::beginOperation();
   NTSTATUS subRes                = addNtSearchData(
       info.currentSearchHandle,
       (fileName != L".") ? static_cast<PUNICODE_STRING>(UnicodeString(fileName.c_str()))
-                                        : nullptr,
+                         : nullptr,
       virtualName, FileInformationClass, FileInformation, dataRead, info.foundFiles,
       nullptr, nullptr, nullptr, ReturnSingleEntry);
   usvfs::profiling::backingDirectoryQuery(backingQueryStarted, true,
@@ -554,8 +554,8 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
   bool firstSearch = false;
 
   {  // scope to limit context lifetime
-    HookContext::ConstPtr context = READ_CONTEXT();
-    Searches& activeSearches      = context->customData<Searches>(SearchInfo);
+    HookContext::Ptr context = WRITE_CONTEXT();
+    Searches& activeSearches = context->customData<Searches>(SearchInfo);
     //    queryLock = std::unique_lock<std::recursive_mutex>(activeSearches.queryMutex);
 
     if (RestartScan) {
@@ -648,7 +648,7 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
                                    ReturnSingleEntry, dataRead)) {
           // a positive result here means the call returned data and there may
           // be further objects to be retrieved by repeating the call
-          dataReturned = true;
+          dataReturned                                 = true;
           infoIter->second.currentVirtualMatchComplete = true;
         } else {
           // proceed to next search handle
@@ -726,8 +726,8 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
   bool firstSearch = false;
 
   {  // scope to limit context lifetime
-    HookContext::ConstPtr context = READ_CONTEXT();
-    Searches& activeSearches      = context->customData<Searches>(SearchInfo);
+    HookContext::Ptr context = WRITE_CONTEXT();
+    Searches& activeSearches = context->customData<Searches>(SearchInfo);
     //    queryLock = std::unique_lock<std::recursive_mutex>(activeSearches.queryMutex);
 
     if (QueryFlags & SL_RESTART_SCAN) {
@@ -821,7 +821,7 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
                                    QueryFlags & SL_RETURN_SINGLE_ENTRY, dataRead)) {
           // a positive result here means the call returned data and there may
           // be further objects to be retrieved by repeating the call
-          dataReturned = true;
+          dataReturned                                 = true;
           infoIter->second.currentVirtualMatchComplete = true;
         } else {
           // proceed to next search handle
@@ -1190,7 +1190,7 @@ NTSTATUS ntdll_mess_NtOpenFile(PHANDLE FileHandle, ACCESS_MASK DesiredAccess,
     POST_REALCALL
     if (SUCCEEDED(res) && storePath) {
       // store the original search path for use during iteration
-      READ_CONTEXT()->customData<SearchHandleMap>(SearchHandles)[*FileHandle] =
+      WRITE_CONTEXT()->customData<SearchHandleMap>(SearchHandles)[*FileHandle] =
           static_cast<LPCWSTR>(fullName);
 #pragma message("need to clean up this handle in CloseHandle call")
     }

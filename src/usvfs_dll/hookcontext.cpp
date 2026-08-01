@@ -36,6 +36,21 @@ using usvfs::shared::VoidAllocatorT;
 using namespace usvfs;
 namespace ush = usvfs::shared;
 
+namespace
+{
+bool sharedContextLockEnabled()
+{
+  static const bool enabled = []() {
+    wchar_t value[16]{};
+    const DWORD length = ::GetEnvironmentVariableW(L"FLUORINE_USVFS_SHARED_CONTEXT",
+                                                   value, ARRAYSIZE(value));
+    return length > 0 && length < ARRAYSIZE(value) && _wcsicmp(value, L"0") != 0 &&
+           _wcsicmp(value, L"false") != 0 && _wcsicmp(value, L"off") != 0;
+  }();
+  return enabled;
+}
+}  // namespace
+
 HookContext* HookContext::s_Instance = nullptr;
 
 void printBuffer(const char* buffer, size_t size)
@@ -138,9 +153,10 @@ HookContext::ConstPtr HookContext::readAccess(const char* source)
 {
   BOOST_ASSERT(s_Instance != nullptr);
 
-  // TODO: this should be a shared mutex!
   const auto waitStarted = profiling::beginLockWait();
-  const auto waitKind    = s_Instance->m_Mutex.wait(200);
+  const auto waitKind    = sharedContextLockEnabled()
+                               ? s_Instance->m_SharedMutex.lockShared()
+                               : s_Instance->m_Mutex.wait(200);
   profiling::lockAcquired(waitStarted, waitKind, false, source);
   return ConstPtr(s_Instance, unlockShared);
 }
@@ -150,7 +166,9 @@ HookContext::Ptr HookContext::writeAccess(const char* source)
   BOOST_ASSERT(s_Instance != nullptr);
 
   const auto waitStarted = profiling::beginLockWait();
-  const auto waitKind    = s_Instance->m_Mutex.wait(200);
+  const auto waitKind    = sharedContextLockEnabled()
+                               ? s_Instance->m_SharedMutex.lockExclusive()
+                               : s_Instance->m_Mutex.wait(200);
   profiling::lockAcquired(waitStarted, waitKind, true, source);
   return Ptr(s_Instance, unlock);
 }
@@ -317,19 +335,25 @@ std::vector<std::future<int>>& HookContext::delayed()
 void HookContext::unlock(HookContext* instance)
 {
   profiling::lockReleased();
-  instance->m_Mutex.signal();
+  if (sharedContextLockEnabled())
+    instance->m_SharedMutex.unlockExclusive();
+  else
+    instance->m_Mutex.signal();
 }
 
 void HookContext::unlockShared(const HookContext* instance)
 {
   profiling::lockReleased();
-  instance->m_Mutex.signal();
+  if (sharedContextLockEnabled())
+    instance->m_SharedMutex.unlockShared();
+  else
+    instance->m_Mutex.signal();
 }
 
 // deprecated
 //
-extern "C" DLLEXPORT HookContext* __cdecl CreateHookContext(
-    const USVFSParameters& oldParams, HMODULE module)
+extern "C" DLLEXPORT HookContext* __cdecl
+CreateHookContext(const USVFSParameters& oldParams, HMODULE module)
 {
   const usvfsParameters p(oldParams);
   return usvfsCreateHookContext(p, module);
