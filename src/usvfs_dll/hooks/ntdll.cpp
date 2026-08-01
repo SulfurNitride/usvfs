@@ -660,8 +660,10 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
 
   size_t numVirtualFiles = infoIter->second.virtualMatches.size();
   profiling::directoryQuery(false, static_cast<ULONG>(FileInformationClass), Length,
-                            ReturnSingleEntry != FALSE, RestartScan != FALSE, FileName,
-                            firstSearch, numVirtualFiles, static_cast<LONG>(res));
+                            ReturnSingleEntry != FALSE, RestartScan != FALSE,
+                            FileName ? FileName->Buffer : nullptr,
+                            FileName ? FileName->Length : 0, firstSearch,
+                            numVirtualFiles, static_cast<LONG>(res));
   if ((numVirtualFiles > 0)) {
     LOG_CALL()
         .addParam("path", ntdllHandleTracker.lookup(FileHandle))
@@ -818,10 +820,11 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
   IoStatusBlock->Information = dataRead;
 
   size_t numVirtualFiles = infoIter->second.virtualMatches.size();
-  profiling::directoryQuery(true, static_cast<ULONG>(FileInformationClass), Length,
-                            (QueryFlags & SL_RETURN_SINGLE_ENTRY) != 0,
-                            (QueryFlags & SL_RESTART_SCAN) != 0, FileName, firstSearch,
-                            numVirtualFiles, static_cast<LONG>(res));
+  profiling::directoryQuery(
+      true, static_cast<ULONG>(FileInformationClass), Length,
+      (QueryFlags & SL_RETURN_SINGLE_ENTRY) != 0, (QueryFlags & SL_RESTART_SCAN) != 0,
+      FileName ? FileName->Buffer : nullptr, FileName ? FileName->Length : 0,
+      firstSearch, numVirtualFiles, static_cast<LONG>(res));
   if ((numVirtualFiles > 0)) {
     LOG_CALL()
         .addParam("path", ntdllHandleTracker.lookup(FileHandle))

@@ -120,14 +120,14 @@ namespace
     Wildcard
   };
 
-  PatternKind patternKind(const UNICODE_STRING* fileName)
+  PatternKind patternKind(const wchar_t* fileName, USHORT fileNameLength)
   {
-    if (fileName == nullptr || fileName->Buffer == nullptr || fileName->Length == 0) {
+    if (fileName == nullptr || fileNameLength == 0) {
       return PatternKind::Null;
     }
-    const size_t characterCount = fileName->Length / sizeof(wchar_t);
+    const size_t characterCount = fileNameLength / sizeof(wchar_t);
     for (size_t i = 0; i < characterCount; ++i) {
-      if (fileName->Buffer[i] == L'*' || fileName->Buffer[i] == L'?') {
+      if (fileName[i] == L'*' || fileName[i] == L'?') {
         return PatternKind::Wildcard;
       }
     }
@@ -246,8 +246,9 @@ void lockReleased()
 }
 
 void directoryQuery(bool extendedApi, ULONG informationClass, ULONG bufferLength,
-                    bool singleEntry, bool restartScan, const UNICODE_STRING* fileName,
-                    bool firstSearch, size_t virtualFilesRemaining, LONG result)
+                    bool singleEntry, bool restartScan, const wchar_t* fileName,
+                    USHORT fileNameLength, bool firstSearch,
+                    size_t virtualFilesRemaining, LONG result)
 {
   if (!enabled())
     return;
@@ -263,7 +264,7 @@ void directoryQuery(bool extendedApi, ULONG informationClass, ULONG bufferLength
   if (virtualFilesRemaining > 0)
     g_Counters.directoryVirtualRemaining.fetch_add(1, std::memory_order_relaxed);
 
-  switch (patternKind(fileName)) {
+  switch (patternKind(fileName, fileNameLength)) {
   case PatternKind::Null:
     g_Counters.directoryNullPattern.fetch_add(1, std::memory_order_relaxed);
     break;
