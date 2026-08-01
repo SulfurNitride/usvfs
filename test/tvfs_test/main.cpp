@@ -36,6 +36,7 @@ along with usvfs. If not, see <http://www.gnu.org/licenses/>.
 #include <spdlog/spdlog.h>
 
 #include <hookcontext.h>
+#include <hooks/file_information_utils.h>
 #include <hooks/kernel32.h>
 #include <hooks/ntdll.h>
 #include <logging.h>
@@ -353,8 +354,8 @@ TEST_F(USVFSTest, NtQueryDirectoryFileFindsVirtualFile)
   usvfs::UnicodeString fileName(L"np.exe");
 
   NTSTATUS queryResult = usvfs::hook_NtQueryDirectoryFile(
-      hdl, nullptr, nullptr, nullptr, &status, buffer, 1024,
-      FileDirectoryInformation, TRUE, static_cast<PUNICODE_STRING>(fileName), TRUE);
+      hdl, nullptr, nullptr, nullptr, &status, buffer, 1024, FileDirectoryInformation,
+      TRUE, static_cast<PUNICODE_STRING>(fileName), TRUE);
 
   FILE_DIRECTORY_INFORMATION* info =
       reinterpret_cast<FILE_DIRECTORY_INFORMATION*>(buffer);
@@ -363,18 +364,85 @@ TEST_F(USVFSTest, NtQueryDirectoryFileFindsVirtualFile)
   ASSERT_EQ(0, wcscmp(info->FileName, L"np.exe"));
 
   queryResult = usvfs::hook_NtQueryDirectoryFile(
-      hdl, nullptr, nullptr, nullptr, &status, buffer, 1024,
-      FileDirectoryInformation, TRUE, static_cast<PUNICODE_STRING>(fileName), FALSE);
+      hdl, nullptr, nullptr, nullptr, &status, buffer, 1024, FileDirectoryInformation,
+      TRUE, static_cast<PUNICODE_STRING>(fileName), FALSE);
   ASSERT_EQ(STATUS_NO_MORE_FILES, queryResult);
   ASSERT_EQ(STATUS_NO_MORE_FILES, status.Status);
 
   queryResult = usvfs::hook_NtQueryDirectoryFile(
-      hdl, nullptr, nullptr, nullptr, &status, buffer, 1024,
-      FileDirectoryInformation, TRUE, static_cast<PUNICODE_STRING>(fileName), TRUE);
+      hdl, nullptr, nullptr, nullptr, &status, buffer, 1024, FileDirectoryInformation,
+      TRUE, static_cast<PUNICODE_STRING>(fileName), TRUE);
   ASSERT_EQ(STATUS_SUCCESS, queryResult);
   ASSERT_EQ(STATUS_SUCCESS, status.Status);
 
   usvfs::hook_NtClose(hdl);
+}
+
+TEST_F(USVFSTest, NtQueryDirectoryExactVirtualFileAbiMatrix)
+{
+  auto params = defaultUsvfsParams();
+  std::unique_ptr<usvfs::HookContext> ctx(
+      usvfsCreateHookContext(*params, ::GetModuleHandle(nullptr)));
+  usvfs::RedirectionTreeContainer& tree = ctx->redirectionTable();
+  tree.addFile(L"C:\\usvfs-abi-matrix.txt", usvfs::RedirectionDataLocal(REAL_FILEA));
+
+  constexpr std::array<FILE_INFORMATION_CLASS, 6> informationClasses{
+      FileDirectoryInformation,       FileFullDirectoryInformation,
+      FileBothDirectoryInformation,   FileNamesInformation,
+      FileIdBothDirectoryInformation, FileIdFullDirectoryInformation};
+
+  for (const bool extended : {false, true}) {
+    for (const auto informationClass : informationClasses) {
+      SCOPED_TRACE(::testing::Message()
+                   << "extended=" << extended
+                   << " information_class=" << static_cast<int>(informationClass));
+
+      HANDLE hdl = hooked_NtOpenFile(
+          L"C:\\", FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+          FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
+      ASSERT_NE(INVALID_HANDLE_VALUE, hdl);
+
+      IO_STATUS_BLOCK status{};
+      std::array<std::byte, 4096> buffer{};
+      usvfs::UnicodeString fileName(L"usvfs-abi-matrix.txt");
+
+      const auto query = [&](bool restart) {
+        buffer.fill(std::byte{});
+        if (extended) {
+          ULONG flags = SL_RETURN_SINGLE_ENTRY;
+          if (restart)
+            flags |= SL_RESTART_SCAN;
+          return usvfs::hook_NtQueryDirectoryFileEx(
+              hdl, nullptr, nullptr, nullptr, &status, buffer.data(),
+              static_cast<ULONG>(buffer.size()), informationClass, flags,
+              static_cast<PUNICODE_STRING>(fileName));
+        }
+        return usvfs::hook_NtQueryDirectoryFile(
+            hdl, nullptr, nullptr, nullptr, &status, buffer.data(),
+            static_cast<ULONG>(buffer.size()), informationClass, TRUE,
+            static_cast<PUNICODE_STRING>(fileName), restart ? TRUE : FALSE);
+      };
+
+      ASSERT_EQ(STATUS_SUCCESS, query(true));
+      ASSERT_EQ(STATUS_SUCCESS, status.Status);
+      ULONG nextOffset = ULONG_MAX;
+      std::wstring returnedName;
+      GetFileInformationData(informationClass, buffer.data(), nextOffset, returnedName);
+      EXPECT_EQ(0UL, nextOffset);
+      EXPECT_EQ(L"usvfs-abi-matrix.txt", returnedName);
+
+      EXPECT_EQ(STATUS_NO_MORE_FILES, query(false));
+      EXPECT_EQ(STATUS_NO_MORE_FILES, status.Status);
+
+      ASSERT_EQ(STATUS_SUCCESS, query(true));
+      ASSERT_EQ(STATUS_SUCCESS, status.Status);
+      returnedName.clear();
+      GetFileInformationData(informationClass, buffer.data(), nextOffset, returnedName);
+      EXPECT_EQ(L"usvfs-abi-matrix.txt", returnedName);
+
+      usvfs::hook_NtClose(hdl);
+    }
+  }
 }
 
 TEST_F(USVFSTest, NtQueryDirectoryFileFindsWidePhysicalFilename)
