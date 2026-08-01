@@ -9,7 +9,9 @@ on:
     types: [opened, synchronize, reopened]
 
 env:
-  VCPKG_BINARY_SOURCES: clear;x-azblob,${{ vars.AZ_BLOB_VCPKG_URL }},${{ secrets.AZ_BLOB_SAS }},readwrite
+  # The upstream repository uses a private Azure vcpkg cache. Forks do not
+  # receive those variables, so use the cache backend built into Actions.
+  VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
 
 jobs:
   build:
