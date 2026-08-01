@@ -65,6 +65,8 @@ namespace
   };
 
   Counters g_Counters;
+  std::atomic<unsigned long long> g_SummarySequence{0};
+  thread_local bool g_EmittingSummary = false;
 
   struct HeldLock
   {
@@ -170,6 +172,7 @@ bool enabled()
 
 void reset()
 {
+  g_SummarySequence.store(0, std::memory_order_relaxed);
   clear(g_Counters.lockAcquisitions);
   clear(g_Counters.lockReads);
   clear(g_Counters.lockWrites);
@@ -283,7 +286,8 @@ void directoryQuery(bool extendedApi, ULONG informationClass, ULONG bufferLength
 {
   if (!enabled())
     return;
-  g_Counters.directoryQueries.fetch_add(1, std::memory_order_relaxed);
+  const auto queryCount =
+      g_Counters.directoryQueries.fetch_add(1, std::memory_order_relaxed) + 1;
   (extendedApi ? g_Counters.directoryExtended : g_Counters.directoryLegacy)
       .fetch_add(1, std::memory_order_relaxed);
   if (singleEntry)
@@ -322,6 +326,12 @@ void directoryQuery(bool extendedApi, ULONG informationClass, ULONG bufferLength
     g_Counters.directoryNoSuchFile.fetch_add(1, std::memory_order_relaxed);
   else
     g_Counters.directoryOtherStatus.fetch_add(1, std::memory_order_relaxed);
+
+  // Game benchmark processes are deliberately terminated after a fixed dwell,
+  // so DLL teardown is not guaranteed. Preserve a low-rate cumulative snapshot
+  // without turning profiling into per-call logging.
+  if ((queryCount % 10000) == 0)
+    emitSummary();
 }
 
 void parentDirectoryOpen(LONGLONG started, bool success)
@@ -361,32 +371,41 @@ void backingDirectoryQuery(LONGLONG started, bool virtualQuery, LONG result)
 
 void emitSummary()
 {
-  if (!enabled())
+  if (!enabled() || g_EmittingSummary)
     return;
+  struct EmissionGuard
+  {
+    EmissionGuard() { g_EmittingSummary = true; }
+    ~EmissionGuard() { g_EmittingSummary = false; }
+  } emissionGuard;
+
   LARGE_INTEGER frequency{};
   ::QueryPerformanceFrequency(&frequency);
   auto logger = spdlog::get("usvfs");
   if (!logger)
     return;
+  const auto sequence = g_SummarySequence.fetch_add(1, std::memory_order_relaxed) + 1;
 
   logger->info(
-      "[profile] format=1 kind=context_lock pid={} qpc_frequency={} acquisitions={} "
+      "[profile] format=1 kind=context_lock pid={} snapshot={} qpc_frequency={} "
+      "acquisitions={} "
       "reads={} writes={} recursive={} contended={} wait_ticks={} max_wait_ticks={} "
       "hold_ticks={} max_hold_ticks={} max_depth={}",
-      ::GetCurrentProcessId(), frequency.QuadPart, g_Counters.lockAcquisitions.load(),
-      g_Counters.lockReads.load(), g_Counters.lockWrites.load(),
-      g_Counters.lockRecursive.load(), g_Counters.lockContended.load(),
-      g_Counters.lockWaitTicks.load(), g_Counters.lockMaxWaitTicks.load(),
-      g_Counters.lockHoldTicks.load(), g_Counters.lockMaxHoldTicks.load(),
-      g_Counters.lockMaxDepth.load());
+      ::GetCurrentProcessId(), sequence, frequency.QuadPart,
+      g_Counters.lockAcquisitions.load(), g_Counters.lockReads.load(),
+      g_Counters.lockWrites.load(), g_Counters.lockRecursive.load(),
+      g_Counters.lockContended.load(), g_Counters.lockWaitTicks.load(),
+      g_Counters.lockMaxWaitTicks.load(), g_Counters.lockHoldTicks.load(),
+      g_Counters.lockMaxHoldTicks.load(), g_Counters.lockMaxDepth.load());
 
   logger->info(
-      "[profile] format=1 kind=directory_query pid={} total={} legacy={} ex={} "
+      "[profile] format=1 kind=directory_query pid={} snapshot={} total={} legacy={} "
+      "ex={} "
       "single={} restart={} pattern_null={} pattern_exact={} pattern_wildcard={} "
       "first_search={} virtual_remaining={} success={} no_more={} no_such={} "
       "other_status={} buffer_le_64={} buffer_le_256={} buffer_le_1024={} "
       "buffer_le_4096={} buffer_le_16384={} buffer_gt_16384={}",
-      ::GetCurrentProcessId(), g_Counters.directoryQueries.load(),
+      ::GetCurrentProcessId(), sequence, g_Counters.directoryQueries.load(),
       g_Counters.directoryLegacy.load(), g_Counters.directoryExtended.load(),
       g_Counters.directorySingle.load(), g_Counters.directoryRestart.load(),
       g_Counters.directoryNullPattern.load(), g_Counters.directoryExactPattern.load(),
@@ -402,13 +421,14 @@ void emitSummary()
       g_Counters.directoryBufferBuckets[4].load(),
       g_Counters.directoryBufferBuckets[5].load());
 
-  logger->info("[profile] format=1 kind=directory_work pid={} qpc_frequency={} "
+  logger->info("[profile] format=1 kind=directory_work pid={} snapshot={} "
+               "qpc_frequency={} "
                "parent_opens={} parent_open_failures={} parent_open_ticks={} "
                "parent_open_max_ticks={} regular_queries={} regular_query_ticks={} "
                "regular_query_max_ticks={} virtual_queries={} virtual_query_ticks={} "
                "virtual_query_max_ticks={} backing_success={} backing_no_more={} "
                "backing_other_status={}",
-               ::GetCurrentProcessId(), frequency.QuadPart,
+               ::GetCurrentProcessId(), sequence, frequency.QuadPart,
                g_Counters.parentDirectoryOpens.load(),
                g_Counters.parentDirectoryOpenFailures.load(),
                g_Counters.parentDirectoryOpenTicks.load(),
@@ -427,18 +447,20 @@ void emitSummary()
     const auto count = g_Counters.directoryInformationClasses[i].load();
     if (count != 0) {
       logger->info("[profile] format=1 kind=directory_information_class pid={} "
-                   "class={} count={}",
-                   ::GetCurrentProcessId(), i, count);
+                   "snapshot={} class={} count={}",
+                   ::GetCurrentProcessId(), sequence, i, count);
     }
   }
   for (const auto& source : g_Counters.sources) {
     const char* name        = source.source.load();
     const auto acquisitions = source.acquisitions.load();
     if (name != nullptr && acquisitions != 0) {
-      logger->info("[profile] format=1 kind=context_lock_source pid={} source={} "
-                   "acquisitions={} contended={} wait_ticks={} max_wait_ticks={}",
-                   ::GetCurrentProcessId(), name, acquisitions, source.contended.load(),
-                   source.waitTicks.load(), source.maxWaitTicks.load());
+      logger->info("[profile] format=1 kind=context_lock_source pid={} snapshot={} "
+                   "source={} acquisitions={} contended={} wait_ticks={} "
+                   "max_wait_ticks={}",
+                   ::GetCurrentProcessId(), sequence, name, acquisitions,
+                   source.contended.load(), source.waitTicks.load(),
+                   source.maxWaitTicks.load());
     }
   }
 }
