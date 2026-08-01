@@ -492,23 +492,23 @@ bool addVirtualSearchResult(PVOID& FileInformation,
     std::wstring dirName = fullPath.parent_path().wstring();
     if (dirName.length() >= MAX_PATH && !ush::startswith(dirName.c_str(), LR"(\\?\)"))
       dirName = LR"(\\?\)" + dirName;
-    const auto parentOpenStarted = profiling::beginOperation();
+    const auto parentOpenStarted = usvfs::profiling::beginOperation();
     info.currentSearchHandle =
         CreateFileW(dirName.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
                     nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    profiling::parentDirectoryOpen(parentOpenStarted,
-                                   info.currentSearchHandle != INVALID_HANDLE_VALUE);
+    usvfs::profiling::parentDirectoryOpen(
+        parentOpenStarted, info.currentSearchHandle != INVALID_HANDLE_VALUE);
   }
   std::wstring fileName          = fullPath.filename().wstring();
-  const auto backingQueryStarted = profiling::beginOperation();
+  const auto backingQueryStarted = usvfs::profiling::beginOperation();
   NTSTATUS subRes                = addNtSearchData(
       info.currentSearchHandle,
       (fileName != L".") ? static_cast<PUNICODE_STRING>(UnicodeString(fileName.c_str()))
                                         : nullptr,
       virtualName, FileInformationClass, FileInformation, dataRead, info.foundFiles,
       nullptr, nullptr, nullptr, ReturnSingleEntry);
-  profiling::backingDirectoryQuery(backingQueryStarted, true,
-                                   static_cast<LONG>(subRes));
+  usvfs::profiling::backingDirectoryQuery(backingQueryStarted, true,
+                                          static_cast<LONG>(subRes));
   if (subRes == STATUS_SUCCESS) {
     return true;
   } else {
