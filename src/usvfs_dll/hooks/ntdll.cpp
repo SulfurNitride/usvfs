@@ -2,7 +2,7 @@
 
 #include <mutex>
 #include <queue>
-#include <set>
+#include <unordered_set>
 
 #include <boost/filesystem.hpp>
 
@@ -295,8 +295,9 @@ bool isDeviceFile(std::wstring_view name)
 NTSTATUS addNtSearchData(HANDLE hdl, PUNICODE_STRING FileName,
                          const std::wstring& fakeName,
                          FILE_INFORMATION_CLASS FileInformationClass, PVOID& buffer,
-                         ULONG& bufferSize, std::set<std::wstring>& foundFiles,
-                         HANDLE event, PIO_APC_ROUTINE apcRoutine, PVOID apcContext,
+                         ULONG& bufferSize,
+                         std::unordered_set<std::wstring>& foundFiles, HANDLE event,
+                         PIO_APC_ROUTINE apcRoutine, PVOID apcContext,
                          BOOLEAN returnSingleEntry)
 {
   NTSTATUS res = STATUS_NO_SUCH_FILE;
@@ -397,7 +398,7 @@ struct Searches
     };
 
     Info() : currentSearchHandle(INVALID_HANDLE_VALUE) {}
-    std::set<std::wstring> foundFiles;
+    std::unordered_set<std::wstring> foundFiles;
     HANDLE currentSearchHandle;
     std::queue<VirtualMatch> virtualMatches;
     UnicodeString searchPattern;
