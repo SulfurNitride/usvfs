@@ -917,14 +917,14 @@ DLLEXPORT NTSTATUS WINAPI usvfs::hook_NtQueryObject(
       }
     }
 
-    auto logger = LOG_CALL()
-                      .PARAMWRAP(res)
-                      .PARAM(ObjectInformationLength)
-                      .addParam("return_length", ReturnLength ? *ReturnLength : -1)
-                      .addParam("tracker_path", trackerInfo)
-                      .PARAM(ObjectInformationClass)
-                      .PARAM(redir.redirected)
-                      .PARAM(redir.path);
+    auto logger = LOG_CALL();
+    logger.PARAMWRAP(res)
+        .PARAM(ObjectInformationLength)
+        .addParam("return_length", ReturnLength ? *ReturnLength : -1)
+        .addParam("tracker_path", trackerInfo)
+        .PARAM(ObjectInformationClass)
+        .PARAM(redir.redirected)
+        .PARAM(redir.path);
 
     if (res == STATUS_SUCCESS) {
       logger.addParam("name_info", info->Name);
