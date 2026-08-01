@@ -403,6 +403,7 @@ struct Searches
     std::queue<VirtualMatch> virtualMatches;
     UnicodeString searchPattern;
     bool regularComplete{false};
+    bool currentVirtualMatchComplete{false};
   };
 
   Searches() = default;
@@ -632,6 +633,13 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
   if (!moreRegular) {
     // add virtual results
     while (!dataReturned && infoIter->second.virtualMatches.size() > 0) {
+      if (infoIter->second.currentVirtualMatchComplete) {
+        infoIter->second.virtualMatches.pop();
+        CloseHandle(infoIter->second.currentSearchHandle);
+        infoIter->second.currentSearchHandle         = INVALID_HANDLE_VALUE;
+        infoIter->second.currentVirtualMatchComplete = false;
+        continue;
+      }
       auto match = infoIter->second.virtualMatches.front();
       if (match.realPath.size() != 0) {
         dataRead = Length;
@@ -641,6 +649,7 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
           // a positive result here means the call returned data and there may
           // be further objects to be retrieved by repeating the call
           dataReturned = true;
+          infoIter->second.currentVirtualMatchComplete = true;
         } else {
           // proceed to next search handle
 
@@ -649,7 +658,8 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
           // re-write the offsets between information objects
           infoIter->second.virtualMatches.pop();
           CloseHandle(infoIter->second.currentSearchHandle);
-          infoIter->second.currentSearchHandle = INVALID_HANDLE_VALUE;
+          infoIter->second.currentSearchHandle         = INVALID_HANDLE_VALUE;
+          infoIter->second.currentVirtualMatchComplete = false;
         }
       }
     }
@@ -796,6 +806,13 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
   if (!moreRegular) {
     // add virtual results
     while (!dataReturned && infoIter->second.virtualMatches.size() > 0) {
+      if (infoIter->second.currentVirtualMatchComplete) {
+        infoIter->second.virtualMatches.pop();
+        CloseHandle(infoIter->second.currentSearchHandle);
+        infoIter->second.currentSearchHandle         = INVALID_HANDLE_VALUE;
+        infoIter->second.currentVirtualMatchComplete = false;
+        continue;
+      }
       auto match = infoIter->second.virtualMatches.front();
       if (match.realPath.size() != 0) {
         dataRead = Length;
@@ -805,6 +822,7 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
           // a positive result here means the call returned data and there may
           // be further objects to be retrieved by repeating the call
           dataReturned = true;
+          infoIter->second.currentVirtualMatchComplete = true;
         } else {
           // proceed to next search handle
 
@@ -813,7 +831,8 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
           // re-write the offsets between information objects
           infoIter->second.virtualMatches.pop();
           CloseHandle(infoIter->second.currentSearchHandle);
-          infoIter->second.currentSearchHandle = INVALID_HANDLE_VALUE;
+          infoIter->second.currentSearchHandle         = INVALID_HANDLE_VALUE;
+          infoIter->second.currentVirtualMatchComplete = false;
         }
       }
     }
