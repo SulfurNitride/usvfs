@@ -2,7 +2,7 @@ name: Build USVFS
 
 on:
   push:
-    branches: [master, dev/cmake]
+    branches: [master, dev/cmake, perf/hash-duplicate-tracker]
     tags:
       - "*"
   pull_request:
