@@ -25,8 +25,10 @@ along with usvfs. If not, see <http://www.gnu.org/licenses/>.
 
 #include <test_helpers.h>
 
+#include <atomic>
 #include <fstream>
 #include <iostream>
+#include <thread>
 
 #include <inject.h>
 #include <stringutils.h>
@@ -443,6 +445,67 @@ TEST_F(USVFSTest, NtQueryDirectoryExactVirtualFileAbiMatrix)
       usvfs::hook_NtClose(hdl);
     }
   }
+}
+
+TEST_F(USVFSTest, ConcurrentExactVirtualQueryRestartsKeepSearchStateValid)
+{
+  auto params = defaultUsvfsParams();
+  std::unique_ptr<usvfs::HookContext> ctx(
+      usvfsCreateHookContext(*params, ::GetModuleHandle(nullptr)));
+  usvfs::RedirectionTreeContainer& tree = ctx->redirectionTable();
+  tree.addFile(L"C:\\usvfs-concurrent-exact.txt",
+               usvfs::RedirectionDataLocal(REAL_FILEA));
+
+  HANDLE hdl =
+      hooked_NtOpenFile(L"C:\\", FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
+  ASSERT_NE(INVALID_HANDLE_VALUE, hdl);
+
+  constexpr int threadCount = 8;
+  constexpr int iterations  = 250;
+  std::atomic<int> ready{0};
+  std::atomic<int> failures{0};
+  std::atomic<bool> start{false};
+  std::vector<std::thread> threads;
+  threads.reserve(threadCount);
+
+  for (int thread = 0; thread < threadCount; ++thread) {
+    threads.emplace_back([&]() {
+      ready.fetch_add(1, std::memory_order_release);
+      while (!start.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+
+      for (int iteration = 0; iteration < iterations; ++iteration) {
+        IO_STATUS_BLOCK status{};
+        std::array<std::byte, 1024> buffer{};
+        usvfs::UnicodeString fileName(L"usvfs-concurrent-exact.txt");
+        const NTSTATUS result = usvfs::hook_NtQueryDirectoryFile(
+            hdl, nullptr, nullptr, nullptr, &status, buffer.data(),
+            static_cast<ULONG>(buffer.size()), FileDirectoryInformation, TRUE,
+            static_cast<PUNICODE_STRING>(fileName), TRUE);
+        const auto* info =
+            reinterpret_cast<const FILE_DIRECTORY_INFORMATION*>(buffer.data());
+        const std::wstring returnedName(info->FileName, info->FileNameLength /
+                                                            sizeof(info->FileName[0]));
+        if (result != STATUS_SUCCESS || status.Status != STATUS_SUCCESS ||
+            returnedName != L"usvfs-concurrent-exact.txt") {
+          failures.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+    });
+  }
+
+  while (ready.load(std::memory_order_acquire) != threadCount) {
+    std::this_thread::yield();
+  }
+  start.store(true, std::memory_order_release);
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  EXPECT_EQ(0, failures.load());
+  usvfs::hook_NtClose(hdl);
 }
 
 TEST_F(USVFSTest, NtQueryDirectoryFileFindsWidePhysicalFilename)

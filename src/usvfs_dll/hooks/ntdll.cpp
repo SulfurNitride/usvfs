@@ -562,30 +562,28 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
         Length, FileInformationClass, ReturnSingleEntry, FileName, RestartScan);
   }
 
-  //  std::unique_lock<std::recursive_mutex> queryLock;
   std::map<HANDLE, Searches::Info>::iterator infoIter;
   bool firstSearch = false;
 
-  {  // scope to limit context lifetime
-    HookContext::Ptr context = WRITE_CONTEXT();
-    Searches& activeSearches = context->customData<Searches>(SearchInfo);
-    //    queryLock = std::unique_lock<std::recursive_mutex>(activeSearches.queryMutex);
+  // The iterator and every field in Searches::Info remain live and mutable for
+  // the complete query. Retaining exclusive context access is essential when
+  // shared-context locking is enabled; releasing it here would allow another
+  // nominally read-labelled hook to mutate or erase this search state.
+  HookContext::Ptr context = WRITE_CONTEXT();
+  Searches& activeSearches = context->customData<Searches>(SearchInfo);
 
-    if (RestartScan) {
-      auto iter = activeSearches.info.find(FileHandle);
-      if (iter != activeSearches.info.end()) {
-        activeSearches.info.erase(iter);
-      }
+  if (RestartScan) {
+    auto iter = activeSearches.info.find(FileHandle);
+    if (iter != activeSearches.info.end()) {
+      activeSearches.info.erase(iter);
     }
-
-    // see if we already have a running search
-    infoIter    = activeSearches.info.find(FileHandle);
-    firstSearch = (infoIter == activeSearches.info.end());
   }
 
+  // see if we already have a running search
+  infoIter    = activeSearches.info.find(FileHandle);
+  firstSearch = (infoIter == activeSearches.info.end());
+
   if (firstSearch) {
-    HookContext::Ptr context = WRITE_CONTEXT();
-    Searches& activeSearches = context->customData<Searches>(SearchInfo);
     // tradeoff time: we store this search status even if no virtual results
     // were found. This causes a little extra cost here and in NtClose every
     // time a non-virtual dir is being searched. However if we don't,
@@ -736,30 +734,26 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
                                     FileInformationClass, QueryFlags, FileName);
   }
 
-  //  std::unique_lock<std::recursive_mutex> queryLock;
   std::map<HANDLE, Searches::Info>::iterator infoIter;
   bool firstSearch = false;
 
-  {  // scope to limit context lifetime
-    HookContext::Ptr context = WRITE_CONTEXT();
-    Searches& activeSearches = context->customData<Searches>(SearchInfo);
-    //    queryLock = std::unique_lock<std::recursive_mutex>(activeSearches.queryMutex);
+  // Keep the mutable search record and its iterator protected until the query
+  // has completely advanced, returned data and updated continuation state.
+  HookContext::Ptr context = WRITE_CONTEXT();
+  Searches& activeSearches = context->customData<Searches>(SearchInfo);
 
-    if (QueryFlags & SL_RESTART_SCAN) {
-      auto iter = activeSearches.info.find(FileHandle);
-      if (iter != activeSearches.info.end()) {
-        activeSearches.info.erase(iter);
-      }
+  if (QueryFlags & SL_RESTART_SCAN) {
+    auto iter = activeSearches.info.find(FileHandle);
+    if (iter != activeSearches.info.end()) {
+      activeSearches.info.erase(iter);
     }
-
-    // see if we already have a running search
-    infoIter    = activeSearches.info.find(FileHandle);
-    firstSearch = (infoIter == activeSearches.info.end());
   }
 
+  // see if we already have a running search
+  infoIter    = activeSearches.info.find(FileHandle);
+  firstSearch = (infoIter == activeSearches.info.end());
+
   if (firstSearch) {
-    HookContext::Ptr context = WRITE_CONTEXT();
-    Searches& activeSearches = context->customData<Searches>(SearchInfo);
     // tradeoff time: we store this search status even if no virtual results
     // were found. This causes a little extra cost here and in NtClose every
     // time a non-virtual dir is being searched. However if we don't,
