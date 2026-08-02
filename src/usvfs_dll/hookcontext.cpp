@@ -321,7 +321,14 @@ HookContext::Ptr HookContext::writeAccess(const char* source)
 
     try {
       waitKind = s_Instance->m_SharedMutex.lockExclusive();
+      if (outermost) {
+        s_Instance->m_Tree.refresh();
+        s_Instance->m_InverseTree.refresh();
+      }
     } catch (...) {
+      if (s_Instance->m_SharedMutex.heldByCurrentThread()) {
+        s_Instance->m_SharedMutex.unlockExclusive();
+      }
       if (outermost) {
         s_Instance->m_MappingMutex.unlockShared();
         s_MappingAccessMode = MappingAccessMode::None;
@@ -353,7 +360,14 @@ HookContext::Ptr HookContext::writeMappingAccess(const char* source)
 
     try {
       waitKind = s_Instance->m_SharedMutex.lockExclusive();
+      if (outermost) {
+        s_Instance->m_Tree.refresh();
+        s_Instance->m_InverseTree.refresh();
+      }
     } catch (...) {
+      if (s_Instance->m_SharedMutex.heldByCurrentThread()) {
+        s_Instance->m_SharedMutex.unlockExclusive();
+      }
       if (outermost) {
         s_Instance->m_MappingMutex.unlockExclusive();
         s_MappingAccessMode = MappingAccessMode::None;
