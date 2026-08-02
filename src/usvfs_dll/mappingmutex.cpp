@@ -3,7 +3,6 @@
 #include <logging.h>
 #include <windows_sane.h>
 
-#include <cstdint>
 #include <format>
 #include <stdexcept>
 
@@ -12,16 +11,16 @@ namespace usvfs
 
 namespace
 {
-  std::uint64_t hashInstanceName(const char* instanceName)
+  std::wstring encodeInstanceName(const char* instanceName)
   {
-    constexpr std::uint64_t Offset = 14695981039346656037ull;
-    constexpr std::uint64_t Prime  = 1099511628211ull;
+    constexpr wchar_t Hex[] = L"0123456789abcdef";
 
-    std::uint64_t result = Offset;
+    std::wstring result;
+    result.reserve(128);
     for (const auto* current = reinterpret_cast<const unsigned char*>(instanceName);
          *current != 0; ++current) {
-      result ^= *current;
-      result *= Prime;
+      result.push_back(Hex[*current >> 4]);
+      result.push_back(Hex[*current & 0x0f]);
     }
     return result;
   }
@@ -137,8 +136,8 @@ std::wstring InterprocessMappingMutex::objectName(const char* instanceName,
                                                   const wchar_t* kind,
                                                   std::size_t stripe)
 {
-  return std::format(L"fluorine-usvfs-mapping-{:016x}-{}-{}-{}",
-                     hashInstanceName(instanceName), sizeof(void*) * 8, kind, stripe);
+  return std::format(L"fluorine-usvfs-mapping-{}-{}-{}-{}",
+                     encodeInstanceName(instanceName), sizeof(void*) * 8, kind, stripe);
 }
 
 void InterprocessMappingMutex::acquire(HANDLE handle, const char* kind)
