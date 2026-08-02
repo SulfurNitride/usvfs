@@ -161,6 +161,18 @@ jobs:
         run: |
           $env:FLUORINE_USVFS_SHARED_CONTEXT = "1"
           ./test/bin/usvfs_test_runner_${{ matrix.arch }}.exe
+          $unsafePatterns = @(
+            "mapping lock upgrade is unsupported",
+            "recursive shared mutex upgrade is unsupported",
+            "mapping instance was left in an incomplete write state",
+            "mapping write failed; refusing further access"
+          )
+          $unsafeDiagnostics = Get-ChildItem ./test/temp -Recurse -Filter "*_usvfs.log" |
+            Select-String -SimpleMatch -Pattern $unsafePatterns
+          if ($unsafeDiagnostics) {
+            $unsafeDiagnostics | ForEach-Object { Write-Error $_.Line }
+            throw "unsafe shared-context lock diagnostic found in USVFS log"
+          }
         if: always()
       - name: Test shared-context mapping lock enabled (global)
         shell: pwsh

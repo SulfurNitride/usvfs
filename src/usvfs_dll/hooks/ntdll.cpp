@@ -584,7 +584,7 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
   }
 
   if (firstSearch) {
-    HookContext::Ptr context = WRITE_CONTEXT();
+    auto context = MAPPING_WRITE_INTENT_CONTEXT();
     Searches& activeSearches = context->customData<Searches>(SearchInfo);
     // tradeoff time: we store this search status even if no virtual results
     // were found. This causes a little extra cost here and in NtClose every
@@ -758,7 +758,7 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
   }
 
   if (firstSearch) {
-    HookContext::Ptr context = WRITE_CONTEXT();
+    auto context = MAPPING_WRITE_INTENT_CONTEXT();
     Searches& activeSearches = context->customData<Searches>(SearchInfo);
     // tradeoff time: we store this search status even if no virtual results
     // were found. This causes a little extra cost here and in NtClose every
