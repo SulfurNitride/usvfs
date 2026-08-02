@@ -572,8 +572,8 @@ BOOL WINAPI usvfsGetVFSProcessList2(size_t* count, DWORD** buffer)
 
 void WINAPI usvfsClearVirtualMappings()
 {
-  context->redirectionTable()->clear();
-  context->inverseTable()->clear();
+  context->redirectionTable().clear();
+  context->inverseTable().clear();
 }
 
 /// ensure the specified path exists. If a physical path of the same name

@@ -3,6 +3,9 @@
 #include "directory_tree.h"
 #include "shared_memory.h"
 
+#include <mutex>
+#include <shared_mutex>
+
 namespace usvfs::shared
 {
 
@@ -56,6 +59,42 @@ template <typename TreeT>
 class TreeContainer
 {
 public:
+  /**
+   * @brief Pins the process-local shared-memory assignment while reading.
+   *
+
+   * * A const TreeContainer lookup may have to switch to a newer shared-memory
+   *
+   * block. Keeping the local read lock beside the pointer prevents another
+   * thread
+   * in this process from reassigning the container while the tree is
+   * being
+   * traversed.
+   */
+  class ReadView
+  {
+  public:
+    ReadView(ReadView&&) noexcept            = default;
+    ReadView& operator=(ReadView&&) noexcept = default;
+
+    ReadView(const ReadView&)            = delete;
+    ReadView& operator=(const ReadView&) = delete;
+
+    const TreeT* get() const { return m_Tree; }
+    const TreeT* operator->() const { return m_Tree; }
+    const TreeT& operator*() const { return *m_Tree; }
+
+  private:
+    friend class TreeContainer<TreeT>;
+
+    ReadView(const TreeT* tree, std::shared_lock<std::shared_mutex>&& lock)
+        : m_Lock(std::move(lock)), m_Tree(tree)
+    {}
+
+    std::shared_lock<std::shared_mutex> m_Lock;
+    const TreeT* m_Tree;
+  };
+
   /**
    * @brief Constructor
    * @param SHMName name of the shared memory holding the tree. This should contain the
@@ -116,6 +155,25 @@ public:
   TreeT* operator->() { return get(); }
 
   /**
+   * @return a stable read-only view of the current tree assignment
+   */
+  ReadView readView() const
+  {
+    for (;;) {
+      std::shared_lock<std::shared_mutex> readLock(m_LocalMutex);
+      if (!m_TreeMeta->outdated) {
+        return ReadView(m_TreeMeta->tree.get(), std::move(readLock));
+      }
+
+      readLock.unlock();
+      std::unique_lock<std::shared_mutex> writeLock(m_LocalMutex);
+      if (m_TreeMeta->outdated) {
+        const_cast<TreeContainer<TreeT>*>(this)->reassignUnlocked();
+      }
+    }
+  }
+
+  /**
    * @return raw pointer to the managed tree
    */
   TreeT* get()
@@ -147,7 +205,12 @@ public:
    */
   std::string shmName() const { return m_SHMName; }
 
-  void clear() { m_TreeMeta->tree->clear(); }
+  void clear()
+  {
+    std::unique_lock<std::shared_mutex> lock(m_LocalMutex);
+    refreshUnlocked();
+    m_TreeMeta->tree->clear();
+  }
 
   /**
    * @brief add a new file to the tree
@@ -163,6 +226,9 @@ public:
   typename TreeT::NodePtrT addFile(const fs::path& name, const T& data,
                                    TreeFlags flags = 0, bool overwrite = true)
   {
+    std::unique_lock<std::shared_mutex> lock(m_LocalMutex);
+    refreshUnlocked();
+
     for (;;) {
       DecomposablePath dp(name.string());
 
@@ -171,7 +237,7 @@ public:
       } catch (const bi::bad_alloc&) {
       }
 
-      reassign();
+      reassignUnlocked();
     }
   }
 
@@ -189,6 +255,9 @@ public:
   typename TreeT::NodePtrT addDirectory(const fs::path& name, const T& data,
                                         TreeFlags flags = 0, bool overwrite = true)
   {
+    std::unique_lock<std::shared_mutex> lock(m_LocalMutex);
+    refreshUnlocked();
+
     for (;;) {
       DecomposablePath dp(name.string());
 
@@ -198,7 +267,7 @@ public:
       } catch (const bi::bad_alloc&) {
       }
 
-      reassign();
+      reassignUnlocked();
     }
   }
 
@@ -224,6 +293,7 @@ private:
     bi::interprocess_mutex mutex;
   };
 
+  mutable std::shared_mutex m_LocalMutex;
   std::string m_SHMName;
   std::shared_ptr<SharedMemoryT> m_SHM;
   TreeMeta* m_TreeMeta;
@@ -477,7 +547,20 @@ private:
   // a valid block, so all the names of the dead shared memory blocks are kept
   // in a vector and deallocated at the very end
   //
+  void refreshUnlocked()
+  {
+    if (m_TreeMeta->outdated) {
+      reassignUnlocked();
+    }
+  }
+
   void reassign()
+  {
+    std::unique_lock<std::shared_mutex> lock(m_LocalMutex);
+    reassignUnlocked();
+  }
+
+  void reassignUnlocked()
   {
     // list of all the shared memory blocks that are now unused and can be
     // destroyed

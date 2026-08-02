@@ -9,7 +9,12 @@
 #include <wildcard.h>
 #include <windows_sane.h>
 
+#include <atomic>
+#include <chrono>
+#include <future>
 #include <sstream>
+#include <thread>
+#include <vector>
 
 #define PRIVATE public
 #include <directory_tree.h>
@@ -268,6 +273,85 @@ TEST(DirectoryTreeTest, SHMAllocationErrorComplex)
       throw;
     }
   });
+}
+
+TEST(DirectoryTreeTest, ConcurrentReadViewsSerializeOutdatedReassignment)
+{
+  static const char shmName[] = "treetest_concurrent_read_view";
+  shared_memory_object::remove(shmName);
+
+  ContainerType writer(shmName, 4096);
+  ContainerType reader(shmName, 4096);
+  const std::string readerInitialName = reader.shmName();
+  std::string finalPath;
+
+  for (int i = 0; i < 10000 && writer.shmName() == readerInitialName; ++i) {
+    finalPath = std::format(R"(C:\refresh\file_{:05}.txt)", i);
+    writer.addFile(finalPath, i, 0, false);
+  }
+
+  ASSERT_NE(readerInitialName, writer.shmName());
+
+  constexpr int ThreadCount = 8;
+  std::atomic<bool> start{false};
+  std::atomic<int> failures{0};
+  std::vector<std::thread> readers;
+  readers.reserve(ThreadCount);
+
+  for (int i = 0; i < ThreadCount; ++i) {
+    readers.emplace_back([&]() {
+      while (!start.load(std::memory_order_acquire))
+        std::this_thread::yield();
+
+      auto view = reader.readView();
+      if (!view->findNode(finalPath).get())
+        failures.fetch_add(1, std::memory_order_relaxed);
+    });
+  }
+
+  start.store(true, std::memory_order_release);
+  for (auto& thread : readers)
+    thread.join();
+
+  EXPECT_EQ(0, failures.load());
+  EXPECT_EQ(writer.shmName(), reader.shmName());
+}
+
+TEST(DirectoryTreeTest, ReadViewPinsLocalAssignmentAgainstWriter)
+{
+  using namespace std::chrono_literals;
+
+  static const char shmName[] = "treetest_pinned_read_view";
+  shared_memory_object::remove(shmName);
+
+  ContainerType tree(shmName, 64 * 1024);
+  tree.addFile(R"(C:\pinned\before.txt)", 1, 0, false);
+
+  std::promise<void> started;
+  std::promise<void> finished;
+  auto startedFuture  = started.get_future();
+  auto finishedFuture = finished.get_future();
+  std::thread writer;
+
+  {
+    auto view = tree.readView();
+    ASSERT_NE(nullptr, view->findNode(R"(C:\pinned\before.txt)").get());
+
+    writer = std::thread([&]() {
+      started.set_value();
+      tree.addFile(R"(C:\pinned\after.txt)", 2, 0, false);
+      finished.set_value();
+    });
+
+    startedFuture.wait();
+    EXPECT_EQ(std::future_status::timeout, finishedFuture.wait_for(50ms));
+  }
+
+  EXPECT_EQ(std::future_status::ready, finishedFuture.wait_for(2s));
+  writer.join();
+
+  auto view = tree.readView();
+  EXPECT_NE(nullptr, view->findNode(R"(C:\pinned\after.txt)").get());
 }
 
 int main(int argc, char** argv)
