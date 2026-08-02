@@ -9,6 +9,7 @@
 #include <wildcard.h>
 #include <windows_sane.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -352,6 +353,28 @@ TEST(DirectoryTreeTest, ReadViewPinsLocalAssignmentAgainstWriter)
 
   auto view = tree.readView();
   EXPECT_NE(nullptr, view->findNode(R"(C:\pinned\after.txt)").get());
+}
+
+TEST(DirectoryTreeTest, MutationObserverReportsSuccessfulContainerChanges)
+{
+  static const char shmName[] = "treetest_mutation_observer";
+  shared_memory_object::remove(shmName);
+
+  std::array<int, 3> counts{};
+  ContainerType tree(shmName, 64 * 1024, [&](usvfs::shared::TreeMutation mutation) {
+    ++counts.at(static_cast<std::size_t>(mutation));
+  });
+
+  EXPECT_NE(nullptr, tree.addFile(R"(C:\observed\file.txt)", 1, 0, false));
+  EXPECT_EQ(nullptr, tree.addFile(R"(C:\observed\file.txt)", 2, 0, false));
+  EXPECT_NE(nullptr, tree.addDirectory(R"(C:\observed\directory)", 3, 0, false));
+  tree.clear();
+
+  EXPECT_EQ(1, counts.at(static_cast<std::size_t>(usvfs::shared::TreeMutation::Clear)));
+  EXPECT_EQ(1,
+            counts.at(static_cast<std::size_t>(usvfs::shared::TreeMutation::AddFile)));
+  EXPECT_EQ(1, counts.at(static_cast<std::size_t>(
+                   usvfs::shared::TreeMutation::AddDirectory)));
 }
 
 int main(int argc, char** argv)

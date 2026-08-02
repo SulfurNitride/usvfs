@@ -72,6 +72,48 @@ void SharedParameters::setSHMNames(const std::string& current,
   m_currentInverseSHMName.assign(inverse.begin(), inverse.end());
 }
 
+bool SharedParameters::mappingsPublished() const
+{
+  bi::scoped_lock lock(m_mutex);
+  return m_mappingsPublished;
+}
+
+bool SharedParameters::publishMappings()
+{
+  bi::scoped_lock lock(m_mutex);
+
+  ++m_mappingPublishCalls;
+  if (m_mappingsPublished) {
+    return false;
+  }
+
+  m_mappingsPublished = true;
+  return true;
+}
+
+std::uint64_t SharedParameters::recordMappingMutation(MappingTree tree,
+                                                      MappingMutation mutation)
+{
+  bi::scoped_lock lock(m_mutex);
+
+  if (!m_mappingsPublished) {
+    return 0;
+  }
+
+  ++m_postPublishMutations;
+  ++m_mutationsByTree.at(static_cast<std::size_t>(tree));
+  ++m_mutationsByOperation.at(static_cast<std::size_t>(mutation));
+  return m_postPublishMutations;
+}
+
+MappingPublicationStats SharedParameters::mappingPublicationStats() const
+{
+  bi::scoped_lock lock(m_mutex);
+
+  return {m_mappingsPublished, m_mappingPublishCalls, m_postPublishMutations,
+          m_mutationsByTree, m_mutationsByOperation};
+}
+
 void SharedParameters::setDebugParameters(LogLevel level, CrashDumpsType dumpType,
                                           const std::string& dumpPath,
                                           std::chrono::milliseconds delayProcess)

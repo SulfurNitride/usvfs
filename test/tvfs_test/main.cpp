@@ -188,6 +188,54 @@ TEST_F(USVFSTest, CanResizeRedirectiontree)
   });
 }
 
+TEST_F(USVFSTest, PublicationBoundaryCountsOnlyLaterMutationsAcrossMappings)
+{
+  static const char instanceName[] = "usvfs_publication_boundary_test";
+  auto params                      = defaultUsvfsParams(instanceName);
+  usvfs::HookContext::remove(instanceName);
+
+  auto context =
+      std::make_unique<usvfs::HookContext>(*params, ::GetModuleHandle(nullptr));
+
+  context->redirectionTable().addFile(R"(C:\before\publication.txt)",
+                                      usvfs::RedirectionDataLocal(REAL_FILEA));
+  EXPECT_EQ(0, context->mappingPublicationStats().postPublishMutations);
+
+  context->publishMappings();
+  context->publishMappings();
+  context->redirectionTable().addFile(R"(C:\after\publication.txt)",
+                                      usvfs::RedirectionDataLocal(REAL_FILEA));
+  context->redirectionTable().addDirectory(R"(C:\after\directory)",
+                                           usvfs::RedirectionDataLocal(REAL_DIRA));
+  context->inverseTable().addFile(R"(C:\windows\notepad.exe)",
+                                  usvfs::RedirectionDataLocal(VIRTUAL_FILEA));
+  context->redirectionTable().clear();
+
+  usvfs::shared::SharedMemoryT secondMapping(boost::interprocess::open_only,
+                                             instanceName);
+  const auto sharedParameters =
+      secondMapping.find<usvfs::SharedParameters>("parameters");
+  ASSERT_NE(nullptr, sharedParameters.first);
+  sharedParameters.first->recordMappingMutation(usvfs::MappingTree::Redirection,
+                                                usvfs::MappingMutation::Remove);
+
+  const auto stats = context->mappingPublicationStats();
+  EXPECT_TRUE(stats.published);
+  EXPECT_EQ(2, stats.publishCalls);
+  EXPECT_EQ(5, stats.postPublishMutations);
+  EXPECT_EQ(4,
+            stats.byTree.at(static_cast<std::size_t>(usvfs::MappingTree::Redirection)));
+  EXPECT_EQ(1, stats.byTree.at(static_cast<std::size_t>(usvfs::MappingTree::Inverse)));
+  EXPECT_EQ(
+      1, stats.byMutation.at(static_cast<std::size_t>(usvfs::MappingMutation::Clear)));
+  EXPECT_EQ(2, stats.byMutation.at(
+                   static_cast<std::size_t>(usvfs::MappingMutation::AddFile)));
+  EXPECT_EQ(1, stats.byMutation.at(
+                   static_cast<std::size_t>(usvfs::MappingMutation::AddDirectory)));
+  EXPECT_EQ(
+      1, stats.byMutation.at(static_cast<std::size_t>(usvfs::MappingMutation::Remove)));
+}
+
 /*
 TEST_F(USVFSTest, CreateFileHookReportsCorrectErrorOnMissingFile)
 {

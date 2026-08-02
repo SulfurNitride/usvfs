@@ -3,11 +3,22 @@
 #include "directory_tree.h"
 #include "shared_memory.h"
 
+#include <functional>
 #include <mutex>
 #include <shared_mutex>
+#include <utility>
 
 namespace usvfs::shared
 {
+
+enum class TreeMutation
+{
+  Clear,
+  AddFile,
+  AddDirectory
+};
+
+using TreeMutationObserver = std::function<void(TreeMutation)>;
 
 // smart pointer to DirectoryTrees (only intended for top-level nodes). This
 // will transparently switch to new shared memory regions in case they get
@@ -100,8 +111,10 @@ public:
    * @note size can't be too small. If initial allocations fail automatic growing won't
    * work
    */
-  TreeContainer(const std::string& SHMName, size_t size = 64 * 1024)
-      : m_TreeMeta(nullptr), m_SHMName(SHMName)
+  TreeContainer(const std::string& SHMName, size_t size = 64 * 1024,
+                TreeMutationObserver mutationObserver = {})
+      : m_MutationObserver(std::move(mutationObserver)), m_SHMName(SHMName),
+        m_TreeMeta(nullptr)
   {
     std::locale global_loc = std::locale();
     std::locale loc(global_loc, new fs::detail::utf8_codecvt_facet);
@@ -205,6 +218,7 @@ public:
     std::unique_lock<std::shared_mutex> lock(m_LocalMutex);
     refreshUnlocked();
     m_TreeMeta->tree->clear();
+    notifyMutation(TreeMutation::Clear);
   }
 
   /**
@@ -228,7 +242,12 @@ public:
       DecomposablePath dp(name.string());
 
       try {
-        return addNode(m_TreeMeta->tree.get(), dp, data, overwrite, flags, allocator());
+        auto result =
+            addNode(m_TreeMeta->tree.get(), dp, data, overwrite, flags, allocator());
+        if (result) {
+          notifyMutation(TreeMutation::AddFile);
+        }
+        return result;
       } catch (const bi::bad_alloc&) {
       }
 
@@ -257,8 +276,12 @@ public:
       DecomposablePath dp(name.string());
 
       try {
-        return addNode(m_TreeMeta->tree.get(), dp, data, overwrite,
-                       flags | FLAG_DIRECTORY, allocator());
+        auto result = addNode(m_TreeMeta->tree.get(), dp, data, overwrite,
+                              flags | FLAG_DIRECTORY, allocator());
+        if (result) {
+          notifyMutation(TreeMutation::AddDirectory);
+        }
+        return result;
       } catch (const bi::bad_alloc&) {
       }
 
@@ -273,6 +296,17 @@ public:
   }
 
 private:
+  void notifyMutation(TreeMutation mutation) const noexcept
+  {
+    try {
+      if (m_MutationObserver) {
+        m_MutationObserver(mutation);
+      }
+    } catch (...) {
+      // Observability must never alter a completed tree mutation.
+    }
+  }
+
   struct TreeMeta
   {
     TreeMeta(const typename TreeT::DataT& data, SegmentManagerT* segmentManager)
@@ -289,6 +323,7 @@ private:
   };
 
   mutable std::shared_mutex m_LocalMutex;
+  TreeMutationObserver m_MutationObserver;
   std::string m_SHMName;
   std::shared_ptr<SharedMemoryT> m_SHM;
   TreeMeta* m_TreeMeta;

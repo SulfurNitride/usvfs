@@ -176,6 +176,11 @@ int main(int argc, char** argv)
       }
 
       if (!blacklisted) {
+        if (params.first->publishMappings()) {
+          logger->info("[tree-publication] boundary published by proxy process {}; "
+                       "mutations remain enabled",
+                       ::GetCurrentProcessId());
+        }
         usvfs::injectProcess(p.parent_path().wstring(), params.first->makeLocal(),
                              processHandle, threadHandle);
       }
@@ -199,6 +204,11 @@ int main(int argc, char** argv)
       }
 
       if (!blacklisted) {
+        if (params.first->publishMappings()) {
+          logger->info("[tree-publication] boundary published by proxy process {}; "
+                       "mutations remain enabled",
+                       ::GetCurrentProcessId());
+        }
         usvfs::injectProcess(p.parent_path().wstring(), params.first->makeLocal(),
                              process.processInfo);
       }

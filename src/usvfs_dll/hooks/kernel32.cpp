@@ -325,6 +325,10 @@ BOOL WINAPI usvfs::hook_CreateProcessInternalW(
   if (res) {
     if (!blacklisted) {
       try {
+        {
+          auto context = READ_CONTEXT();
+          context->publishMappings();
+        }
         injectProcess(dllPath, callParameters, *lpProcessInformation);
       } catch (const std::exception& e) {
         spdlog::get("hooks")->error("failed to inject into {0}: {1}",

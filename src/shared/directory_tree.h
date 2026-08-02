@@ -490,13 +490,14 @@ public:
    */
   void clear() { m_Nodes.clear(); }
 
-  void removeFromTree()
+  bool removeFromTree()
   {
     if (auto par = parent()) {
       spdlog::get("usvfs")->info("remove from tree {}", m_Name.c_str());
       auto self = par->m_Nodes.find(m_Name.c_str());
       if (self != par->m_Nodes.end()) {
         par->erase(self);
+        return true;
       } else {
         // trying to remove a node that does not exist, most likely because it was
         // already removed in a lower level call. this is known to happen when MoveFile
@@ -505,6 +506,8 @@ public:
                                    m_Name.c_str());
       }
     }
+
+    return false;
   }
 
   PRIVATE : void set(StringT key, const NodePtrT& value)

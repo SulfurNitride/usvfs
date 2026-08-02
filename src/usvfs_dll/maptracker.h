@@ -187,9 +187,11 @@ public:
       addToDelete = true;
 
     if (wasRerouted()) {
-      if (m_FileNode.get())
-        m_FileNode->removeFromTree();
-      else
+      if (m_FileNode.get()) {
+        if (m_FileNode->removeFromTree()) {
+          writeContext->recordMappingRemoval();
+        }
+      } else
         spdlog::get("usvfs")->warn("Node not removed: {}",
                                    shared::string_cast<std::string>(m_FileName));
 

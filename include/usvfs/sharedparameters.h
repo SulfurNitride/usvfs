@@ -4,8 +4,38 @@
 #include "usvfsparameters.h"
 #include <shared_memory.h>
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
+
 namespace usvfs
 {
+
+enum class MappingTree : std::size_t
+{
+  Redirection,
+  Inverse,
+  Count
+};
+
+enum class MappingMutation : std::size_t
+{
+  Clear,
+  AddFile,
+  AddDirectory,
+  Remove,
+  Count
+};
+
+struct MappingPublicationStats
+{
+  bool published{false};
+  std::uint64_t publishCalls{0};
+  std::uint64_t postPublishMutations{0};
+  std::array<std::uint64_t, static_cast<std::size_t>(MappingTree::Count)> byTree{};
+  std::array<std::uint64_t, static_cast<std::size_t>(MappingMutation::Count)>
+      byMutation{};
+};
 
 class ForcedLibrary
 {
@@ -37,6 +67,11 @@ public:
   std::string currentSHMName() const;
   std::string currentInverseSHMName() const;
   void setSHMNames(const std::string& current, const std::string& inverse);
+
+  bool mappingsPublished() const;
+  bool publishMappings();
+  std::uint64_t recordMappingMutation(MappingTree tree, MappingMutation mutation);
+  MappingPublicationStats mappingPublicationStats() const;
 
   void setDebugParameters(LogLevel level, CrashDumpsType dumpType,
                           const std::string& dumpPath,
@@ -96,6 +131,13 @@ private:
   shared::StringT m_instanceName;
   shared::StringT m_currentSHMName;
   shared::StringT m_currentInverseSHMName;
+  bool m_mappingsPublished{false};
+  std::uint64_t m_mappingPublishCalls{0};
+  std::uint64_t m_postPublishMutations{0};
+  std::array<std::uint64_t, static_cast<std::size_t>(MappingTree::Count)>
+      m_mutationsByTree{};
+  std::array<std::uint64_t, static_cast<std::size_t>(MappingMutation::Count)>
+      m_mutationsByOperation{};
   bool m_debugMode;
   LogLevel m_logLevel;
   CrashDumpsType m_crashDumpsType;

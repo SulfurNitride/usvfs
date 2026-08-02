@@ -49,6 +49,34 @@ bool sharedContextLockEnabled()
   }();
   return enabled;
 }
+
+const char* mappingTreeName(MappingTree tree)
+{
+  switch (tree) {
+  case MappingTree::Redirection:
+    return "redirection";
+  case MappingTree::Inverse:
+    return "inverse";
+  default:
+    return "unknown";
+  }
+}
+
+const char* mappingMutationName(MappingMutation mutation)
+{
+  switch (mutation) {
+  case MappingMutation::Clear:
+    return "clear";
+  case MappingMutation::AddFile:
+    return "add_file";
+  case MappingMutation::AddDirectory:
+    return "add_directory";
+  case MappingMutation::Remove:
+    return "remove";
+  default:
+    return "unknown";
+  }
+}
 }  // namespace
 
 HookContext* HookContext::s_Instance = nullptr;
@@ -73,14 +101,19 @@ void printBuffer(const char* buffer, size_t size)
 HookContext::HookContext(const usvfsParameters& params, HMODULE module)
     : m_ConfigurationSHM(bi::open_or_create, params.instanceName, 64 * 1024),
       m_Parameters(retrieveParameters(params)),
+      m_MappingsPublishedLocally(m_Parameters->mappingsPublished()),
       m_Tree(m_Parameters->currentSHMName(),
-             4 * 1024 * 1024)  // 4 MiB empirically covers most small setups without
+             4 * 1024 * 1024,  // 4 MiB empirically covers most small setups without
                                // need to resize
-      ,
+             [this](shared::TreeMutation mutation) {
+               observeMappingMutation(MappingTree::Redirection, mutation);
+             }),
       m_InverseTree(
           m_Parameters->currentInverseSHMName(),
-          128 * 1024)  // 128 KiB should cover reverse tree for even larger setups
-      ,
+          128 * 1024,  // 128 KiB should cover reverse tree for even larger setups
+          [this](shared::TreeMutation mutation) {
+            observeMappingMutation(MappingTree::Inverse, mutation);
+          }),
       m_DLLModule(module)
 {
   if (s_Instance != nullptr) {
@@ -111,6 +144,7 @@ void HookContext::remove(const char* instanceName)
 
 HookContext::~HookContext()
 {
+  emitMappingPublicationSummary();
   profiling::emitSummary();
   spdlog::get("usvfs")->info("releasing hook context");
 
@@ -122,6 +156,92 @@ HookContext::~HookContext()
     bi::shared_memory_object::remove(m_Parameters->instanceName().c_str());
   } else {
     spdlog::get("usvfs")->info("{} users left", userCount);
+  }
+}
+
+void HookContext::publishMappings() const noexcept
+{
+  try {
+    const bool firstPublication = m_Parameters->publishMappings();
+    m_MappingsPublishedLocally.store(true, std::memory_order_release);
+    if (firstPublication) {
+      spdlog::get("usvfs")->info(
+          "[tree-publication] boundary published by process {}; mutations remain "
+          "enabled",
+          ::GetCurrentProcessId());
+    }
+  } catch (const std::exception& e) {
+    spdlog::get("usvfs")->error("[tree-publication] failed to publish boundary: {}",
+                                e.what());
+  }
+}
+
+void HookContext::recordMappingRemoval(MappingTree tree) noexcept
+{
+  recordMappingMutation(tree, MappingMutation::Remove);
+}
+
+MappingPublicationStats HookContext::mappingPublicationStats() const
+{
+  return m_Parameters->mappingPublicationStats();
+}
+
+void HookContext::observeMappingMutation(MappingTree tree,
+                                         shared::TreeMutation mutation) noexcept
+{
+  switch (mutation) {
+  case shared::TreeMutation::Clear:
+    recordMappingMutation(tree, MappingMutation::Clear);
+    break;
+  case shared::TreeMutation::AddFile:
+    recordMappingMutation(tree, MappingMutation::AddFile);
+    break;
+  case shared::TreeMutation::AddDirectory:
+    recordMappingMutation(tree, MappingMutation::AddDirectory);
+    break;
+  }
+}
+
+void HookContext::recordMappingMutation(MappingTree tree,
+                                        MappingMutation mutation) noexcept
+{
+  if (!m_MappingsPublishedLocally.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  try {
+    const auto mutationCount = m_Parameters->recordMappingMutation(tree, mutation);
+    if (mutationCount == 1) {
+      spdlog::get("usvfs")->warn(
+          "[tree-publication] first post-publication mutation in process {}: "
+          "tree={} operation={}",
+          ::GetCurrentProcessId(), mappingTreeName(tree),
+          mappingMutationName(mutation));
+    }
+  } catch (const std::exception& e) {
+    spdlog::get("usvfs")->error("[tree-publication] failed to record mutation: {}",
+                                e.what());
+  }
+}
+
+void HookContext::emitMappingPublicationSummary() const noexcept
+{
+  try {
+    const auto stats = mappingPublicationStats();
+    spdlog::get("usvfs")->info(
+        "[tree-publication] summary published={} publish_calls={} "
+        "post_publish_mutations={} redirection={} inverse={} clear={} add_file={} "
+        "add_directory={} remove={}",
+        stats.published, stats.publishCalls, stats.postPublishMutations,
+        stats.byTree.at(static_cast<std::size_t>(MappingTree::Redirection)),
+        stats.byTree.at(static_cast<std::size_t>(MappingTree::Inverse)),
+        stats.byMutation.at(static_cast<std::size_t>(MappingMutation::Clear)),
+        stats.byMutation.at(static_cast<std::size_t>(MappingMutation::AddFile)),
+        stats.byMutation.at(static_cast<std::size_t>(MappingMutation::AddDirectory)),
+        stats.byMutation.at(static_cast<std::size_t>(MappingMutation::Remove)));
+  } catch (const std::exception& e) {
+    spdlog::get("usvfs")->error("[tree-publication] failed to emit summary: {}",
+                                e.what());
   }
 }
 

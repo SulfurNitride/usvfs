@@ -49,6 +49,7 @@ HookManager::HookManager(const usvfsParameters& params, HMODULE module)
 
   s_Instance = this;
 
+  m_Context.publishMappings();
   m_Context.registerProcess(::GetCurrentProcessId());
   spdlog::get("usvfs")->info("Process registered in shared process list : {}",
                              ::GetCurrentProcessId());

@@ -842,6 +842,7 @@ BOOL WINAPI usvfsCreateProcessHooked(LPCWSTR lpApplicationName, LPWSTR lpCommand
     std::wstring applicationDirPath = winapi::wide::getModuleFileName(dllModule);
     boost::filesystem::path p(applicationDirPath);
     try {
+      context->publishMappings();
       usvfs::injectProcess(p.parent_path().wstring(), context->callParameters(),
                            *lpProcessInformation);
     } catch (const std::exception& e) {

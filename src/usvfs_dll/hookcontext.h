@@ -26,14 +26,15 @@ along with usvfs. If not, see <http://www.gnu.org/licenses/>.
 #include "tree_container.h"
 #include <directory_tree.h>
 #include <exceptionex.h>
+#include <sharedparameters.h>
 #include <usvfsparameters.h>
 #include <usvfsparametersprivate.h>
 #include <winapi.h>
 
+#include <atomic>
+
 namespace usvfs
 {
-
-class DLLEXPORT SharedParameters;
 
 /**
  * @brief context available to hooks. This is protected by a many-reader
@@ -85,6 +86,10 @@ public:
   RedirectionTreeContainer& inverseTable() { return m_InverseTree; }
 
   const RedirectionTreeContainer& inverseTable() const { return m_InverseTree; }
+
+  void publishMappings() const noexcept;
+  void recordMappingRemoval(MappingTree tree = MappingTree::Redirection) noexcept;
+  MappingPublicationStats mappingPublicationStats() const;
 
   /**
    * @return the parameters passed in on dll initialisation
@@ -152,12 +157,16 @@ private:
   static void unlockShared(const HookContext* instance);
 
   SharedParameters* retrieveParameters(const usvfsParameters& params);
+  void observeMappingMutation(MappingTree tree, shared::TreeMutation mutation) noexcept;
+  void recordMappingMutation(MappingTree tree, MappingMutation mutation) noexcept;
+  void emitMappingPublicationSummary() const noexcept;
 
 private:
   static HookContext* s_Instance;
 
   shared::SharedMemoryT m_ConfigurationSHM;
   SharedParameters* m_Parameters{nullptr};
+  mutable std::atomic<bool> m_MappingsPublishedLocally{false};
   RedirectionTreeContainer m_Tree;
   RedirectionTreeContainer m_InverseTree;
 
