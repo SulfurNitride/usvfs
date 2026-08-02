@@ -470,7 +470,7 @@ TEST_F(USVFSTest, ConcurrentExactVirtualQueryRestartsKeepSearchStateValid)
   threads.reserve(threadCount);
 
   for (int thread = 0; thread < threadCount; ++thread) {
-    threads.emplace_back([&]() {
+    threads.emplace_back([&, thread]() {
       ready.fetch_add(1, std::memory_order_release);
       while (!start.load(std::memory_order_acquire)) {
         std::this_thread::yield();
@@ -480,10 +480,17 @@ TEST_F(USVFSTest, ConcurrentExactVirtualQueryRestartsKeepSearchStateValid)
         IO_STATUS_BLOCK status{};
         std::array<std::byte, 1024> buffer{};
         usvfs::UnicodeString fileName(L"usvfs-concurrent-exact.txt");
-        const NTSTATUS result = usvfs::hook_NtQueryDirectoryFile(
-            hdl, nullptr, nullptr, nullptr, &status, buffer.data(),
-            static_cast<ULONG>(buffer.size()), FileDirectoryInformation, TRUE,
-            static_cast<PUNICODE_STRING>(fileName), TRUE);
+        const NTSTATUS result =
+            thread % 2 == 0
+                ? usvfs::hook_NtQueryDirectoryFile(
+                      hdl, nullptr, nullptr, nullptr, &status, buffer.data(),
+                      static_cast<ULONG>(buffer.size()), FileDirectoryInformation, TRUE,
+                      static_cast<PUNICODE_STRING>(fileName), TRUE)
+                : usvfs::hook_NtQueryDirectoryFileEx(
+                      hdl, nullptr, nullptr, nullptr, &status, buffer.data(),
+                      static_cast<ULONG>(buffer.size()), FileDirectoryInformation,
+                      SL_RETURN_SINGLE_ENTRY | SL_RESTART_SCAN,
+                      static_cast<PUNICODE_STRING>(fileName));
         const auto* info =
             reinterpret_cast<const FILE_DIRECTORY_INFORMATION*>(buffer.data());
         const std::wstring returnedName(info->FileName, info->FileNameLength /
