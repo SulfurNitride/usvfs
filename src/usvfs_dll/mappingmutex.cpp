@@ -147,8 +147,12 @@ void InterprocessMappingMutex::acquire(HANDLE handle, const char* kind)
     return;
   }
   if (result == WAIT_ABANDONED) {
-    if (auto logger = spdlog::get("usvfs")) {
-      logger->warn("recovered abandoned mapping {}", kind);
+    try {
+      if (auto logger = spdlog::get("usvfs")) {
+        logger->warn("recovered abandoned mapping {}", kind);
+      }
+    } catch (...) {
+      // Recovery already owns the mutex; diagnostics must not leak that ownership.
     }
     return;
   }
@@ -158,8 +162,12 @@ void InterprocessMappingMutex::acquire(HANDLE handle, const char* kind)
 void InterprocessMappingMutex::release(HANDLE handle, const char* kind) noexcept
 {
   if (::ReleaseMutex(handle) == FALSE) {
-    if (auto logger = spdlog::get("usvfs")) {
-      logger->error("failed to release mapping {}", kind);
+    try {
+      if (auto logger = spdlog::get("usvfs")) {
+        logger->error("failed to release mapping {}", kind);
+      }
+    } catch (...) {
+      // Release paths are noexcept and must remain safe during stack unwinding.
     }
   }
 }
