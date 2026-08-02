@@ -123,16 +123,20 @@ TEST(RecursiveSharedMutexTest, SupportsReadAndWriteRecursionWithoutUpgrade)
 {
   RecursiveSharedMutex mutex;
 
+  EXPECT_FALSE(mutex.heldByCurrentThread());
   EXPECT_EQ(mutex.lockShared(), BenaphoreWaitKind::Uncontended);
+  EXPECT_TRUE(mutex.heldByCurrentThread());
   EXPECT_EQ(mutex.lockShared(), BenaphoreWaitKind::Recursive);
   EXPECT_THROW(mutex.lockExclusive(), std::logic_error);
-  mutex.unlockShared();
-  mutex.unlockShared();
+  EXPECT_FALSE(mutex.unlockShared());
+  EXPECT_TRUE(mutex.unlockShared());
+  EXPECT_FALSE(mutex.heldByCurrentThread());
 
   EXPECT_EQ(mutex.lockExclusive(), BenaphoreWaitKind::Uncontended);
   EXPECT_EQ(mutex.lockExclusive(), BenaphoreWaitKind::Recursive);
   EXPECT_EQ(mutex.lockShared(), BenaphoreWaitKind::Recursive);
-  mutex.unlockShared();
-  mutex.unlockExclusive();
-  mutex.unlockExclusive();
+  EXPECT_FALSE(mutex.unlockShared());
+  EXPECT_FALSE(mutex.unlockExclusive());
+  EXPECT_TRUE(mutex.unlockExclusive());
+  EXPECT_FALSE(mutex.heldByCurrentThread());
 }

@@ -115,28 +115,35 @@ BenaphoreWaitKind RecursiveSharedMutex::lockExclusive()
   return result;
 }
 
-void RecursiveSharedMutex::unlockShared()
+bool RecursiveSharedMutex::unlockShared()
 {
   BOOST_ASSERT(s_CurrentLock == this && s_SharedDepth > 0);
   if (--s_SharedDepth != 0)
-    return;
+    return false;
   if (s_ExclusiveDepth != 0)
-    return;
+    return false;
 
   s_CurrentLock = nullptr;
   ::ReleaseSRWLockShared(&m_Lock);
+  return true;
 }
 
-void RecursiveSharedMutex::unlockExclusive()
+bool RecursiveSharedMutex::unlockExclusive()
 {
   BOOST_ASSERT(s_CurrentLock == this && s_ExclusiveDepth > 0);
   BOOST_ASSERT(m_ExclusiveOwner.load(std::memory_order_acquire) ==
                ::GetCurrentThreadId());
   if (--s_ExclusiveDepth != 0)
-    return;
+    return false;
 
   BOOST_ASSERT(s_SharedDepth == 0);
   m_ExclusiveOwner.store(0, std::memory_order_release);
   s_CurrentLock = nullptr;
   ::ReleaseSRWLockExclusive(&m_Lock);
+  return true;
+}
+
+bool RecursiveSharedMutex::heldByCurrentThread() const
+{
+  return s_CurrentLock == this;
 }

@@ -161,10 +161,41 @@ private:
   void emitMappingPublicationSummary() const noexcept;
 
 private:
+  class InitialMappingReadLock
+  {
+  public:
+    InitialMappingReadLock(SharedParameters* parameters, bool enabled)
+        : m_Parameters(enabled ? parameters : nullptr)
+    {
+      if (m_Parameters != nullptr) {
+        m_Parameters->lockMappingsShared();
+      }
+    }
+
+    ~InitialMappingReadLock()
+    {
+      if (m_Parameters != nullptr) {
+        m_Parameters->unlockMappingsShared();
+      }
+    }
+
+    void release()
+    {
+      if (m_Parameters != nullptr) {
+        m_Parameters->unlockMappingsShared();
+        m_Parameters = nullptr;
+      }
+    }
+
+  private:
+    SharedParameters* m_Parameters;
+  };
+
   static HookContext* s_Instance;
 
   shared::SharedMemoryT m_ConfigurationSHM;
   SharedParameters* m_Parameters{nullptr};
+  InitialMappingReadLock m_InitialMappingReadLock;
   mutable std::atomic<bool> m_MappingsPublishedLocally{false};
   RedirectionTreeContainer m_Tree;
   RedirectionTreeContainer m_InverseTree;

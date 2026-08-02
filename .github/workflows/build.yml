@@ -9,6 +9,7 @@ on:
         integration/wine-safe-candidates,
         perf/tree-read-view,
         perf/tree-seal-observer,
+        safety/shared-context-mapping-lock,
       ]
     tags:
       - "*"
@@ -148,6 +149,24 @@ jobs:
       - run: ./test/bin/usvfs_test_runner_${{ matrix.arch }}.exe
         if: always()
       - run: ./test/bin/usvfs_global_test_runner_${{ matrix.arch }}.exe
+        if: always()
+      - name: Test shared-context mapping lock enabled (tvfs)
+        shell: pwsh
+        run: |
+          $env:FLUORINE_USVFS_SHARED_CONTEXT = "1"
+          ./test/bin/tvfs_test_${{ matrix.arch }}.exe
+        if: always()
+      - name: Test shared-context mapping lock enabled (runner)
+        shell: pwsh
+        run: |
+          $env:FLUORINE_USVFS_SHARED_CONTEXT = "1"
+          ./test/bin/usvfs_test_runner_${{ matrix.arch }}.exe
+        if: always()
+      - name: Test shared-context mapping lock enabled (global)
+        shell: pwsh
+        run: |
+          $env:FLUORINE_USVFS_SHARED_CONTEXT = "1"
+          ./test/bin/usvfs_global_test_runner_${{ matrix.arch }}.exe
         if: always()
       - uses: actions/upload-artifact@v4
         if: always()

@@ -46,8 +46,9 @@ public:
 
   BenaphoreWaitKind lockShared();
   BenaphoreWaitKind lockExclusive();
-  void unlockShared();
-  void unlockExclusive();
+  bool unlockShared();
+  bool unlockExclusive();
+  bool heldByCurrentThread() const;
 
 private:
   SRWLOCK m_Lock;

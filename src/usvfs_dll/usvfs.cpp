@@ -572,8 +572,9 @@ BOOL WINAPI usvfsGetVFSProcessList2(size_t* count, DWORD** buffer)
 
 void WINAPI usvfsClearVirtualMappings()
 {
-  context->redirectionTable().clear();
-  context->inverseTable().clear();
+  auto writeContext = WRITE_CONTEXT();
+  writeContext->redirectionTable().clear();
+  writeContext->inverseTable().clear();
 }
 
 /// ensure the specified path exists. If a physical path of the same name
@@ -657,12 +658,13 @@ BOOL WINAPI usvfsVirtualLinkFile(LPCWSTR source, LPCWSTR destination,
   // TODO difference between winapi and ntdll api regarding system32 vs syswow64
   // (and other windows links?)
   try {
-    if (!assertPathExists(context->redirectionTable(), destination)) {
+    auto writeContext = WRITE_CONTEXT();
+    if (!assertPathExists(writeContext->redirectionTable(), destination)) {
       SetLastError(ERROR_PATH_NOT_FOUND);
       return FALSE;
     }
 
-    const auto skipFileSuffixes = context->skipFileSuffixes();
+    const auto skipFileSuffixes = writeContext->skipFileSuffixes();
 
     std::string sourceU8 = ush::string_cast<std::string>(source, ush::CodePage::UTF8);
 
@@ -672,7 +674,7 @@ BOOL WINAPI usvfsVirtualLinkFile(LPCWSTR source, LPCWSTR destination,
       return (flags & LINKFLAG_FAILIFSKIPPED) ? FALSE : TRUE;
     }
 
-    auto res = context->redirectionTable().addFile(
+    auto res = writeContext->redirectionTable().addFile(
         bfs::path(destination), usvfs::RedirectionDataLocal(sourceU8),
         !(flags & LINKFLAG_FAILIFEXISTS));
 
@@ -680,11 +682,11 @@ BOOL WINAPI usvfsVirtualLinkFile(LPCWSTR source, LPCWSTR destination,
       std::string destinationU8 =
           ush::string_cast<std::string>(destination, ush::CodePage::UTF8);
 
-      context->inverseTable().addFile(bfs::path(source),
-                                      usvfs::RedirectionDataLocal(destinationU8), true);
+      writeContext->inverseTable().addFile(
+          bfs::path(source), usvfs::RedirectionDataLocal(destinationU8), true);
     }
 
-    context->updateParameters();
+    writeContext->updateParameters();
 
     if (res.get() == nullptr) {
       // the tree structure currently doesn't provide useful error codes but
@@ -720,12 +722,13 @@ BOOL WINAPI usvfsVirtualLinkDirectoryStatic(LPCWSTR source, LPCWSTR destination,
 {
   // TODO change notification not yet implemented
   try {
+    auto writeContext = WRITE_CONTEXT();
     if ((flags & LINKFLAG_FAILIFEXISTS) && winapi::ex::wide::fileExists(destination)) {
       SetLastError(ERROR_FILE_EXISTS);
       return FALSE;
     }
 
-    if (!assertPathExists(context->redirectionTable(), destination)) {
+    if (!assertPathExists(writeContext->redirectionTable(), destination)) {
       SetLastError(ERROR_PATH_NOT_FOUND);
       return FALSE;
     }
@@ -733,13 +736,13 @@ BOOL WINAPI usvfsVirtualLinkDirectoryStatic(LPCWSTR source, LPCWSTR destination,
     std::string sourceU8 =
         ush::string_cast<std::string>(source, ush::CodePage::UTF8) + "\\";
 
-    context->redirectionTable().addDirectory(
+    writeContext->redirectionTable().addDirectory(
         destination, usvfs::RedirectionDataLocal(sourceU8),
         usvfs::shared::FLAG_DIRECTORY | convertRedirectionFlags(flags),
         (flags & LINKFLAG_CREATETARGET) != 0);
 
-    const auto skipDirectories  = context->skipDirectories();
-    const auto skipFileSuffixes = context->skipFileSuffixes();
+    const auto skipDirectories  = writeContext->skipDirectories();
+    const auto skipFileSuffixes = writeContext->skipFileSuffixes();
 
     if ((flags & LINKFLAG_RECURSIVE) != 0) {
       std::wstring sourceP(source);
@@ -789,7 +792,7 @@ BOOL WINAPI usvfsVirtualLinkDirectoryStatic(LPCWSTR source, LPCWSTR destination,
 
           // TODO could save memory here by storing only the file name for the
           // source and constructing the full name using the parent directory
-          context->redirectionTable().addFile(
+          writeContext->redirectionTable().addFile(
               bfs::path(destination) / nameU8,
               usvfs::RedirectionDataLocal(sourceU8 + nameU8), true);
 
@@ -797,7 +800,7 @@ BOOL WINAPI usvfsVirtualLinkDirectoryStatic(LPCWSTR source, LPCWSTR destination,
             std::string destinationU8 =
                 ush::string_cast<std::string>(destination, ush::CodePage::UTF8) + "\\";
 
-            context->inverseTable().addFile(
+            writeContext->inverseTable().addFile(
                 bfs::path(source) / nameU8,
                 usvfs::RedirectionDataLocal(destinationU8 + nameU8), true);
           }
@@ -805,7 +808,7 @@ BOOL WINAPI usvfsVirtualLinkDirectoryStatic(LPCWSTR source, LPCWSTR destination,
       }
     }
 
-    context->updateParameters();
+    writeContext->updateParameters();
 
     return TRUE;
   } catch (const std::exception& e) {
@@ -842,8 +845,9 @@ BOOL WINAPI usvfsCreateProcessHooked(LPCWSTR lpApplicationName, LPWSTR lpCommand
     std::wstring applicationDirPath = winapi::wide::getModuleFileName(dllModule);
     boost::filesystem::path p(applicationDirPath);
     try {
-      context->publishMappings();
-      usvfs::injectProcess(p.parent_path().wstring(), context->callParameters(),
+      auto readContext = READ_CONTEXT();
+      readContext->publishMappings();
+      usvfs::injectProcess(p.parent_path().wstring(), readContext->callParameters(),
                            *lpProcessInformation);
     } catch (const std::exception& e) {
       spdlog::get("usvfs")->error("failed to inject: {}", e.what());
@@ -864,8 +868,9 @@ BOOL WINAPI usvfsCreateProcessHooked(LPCWSTR lpApplicationName, LPWSTR lpCommand
 BOOL WINAPI usvfsCreateVFSDump(LPSTR buffer, size_t* size)
 {
   assert(size != nullptr);
+  auto readContext = READ_CONTEXT();
   std::ostringstream output;
-  usvfs::shared::dumpTree(output, *context->redirectionTable().get());
+  usvfs::shared::dumpTree(output, *readContext->redirectionTable().get());
   std::string str = output.str();
   if ((buffer != NULL) && (*size > 0)) {
     strncpy_s(buffer, *size, str.c_str(), _TRUNCATE);
@@ -917,11 +922,12 @@ VOID WINAPI usvfsClearLibraryForceLoads()
 
 VOID WINAPI usvfsPrintDebugInfo()
 {
+  auto readContext = READ_CONTEXT();
   spdlog::get("usvfs")->warn("===== debug {} =====",
-                             context->redirectionTable().shmName());
+                             readContext->redirectionTable().shmName());
   void* buffer      = nullptr;
   size_t bufferSize = 0;
-  context->redirectionTable().getBuffer(buffer, bufferSize);
+  readContext->redirectionTable().getBuffer(buffer, bufferSize);
   std::ostringstream temp;
   for (size_t i = 0; i < bufferSize; ++i) {
     temp << std::hex << std::setfill('0') << std::setw(2)
@@ -936,7 +942,7 @@ VOID WINAPI usvfsPrintDebugInfo()
     spdlog::get("usvfs")->info("{}", temp.str());
   }
   spdlog::get("usvfs")->warn("===== / debug {} =====",
-                             context->redirectionTable().shmName());
+                             readContext->redirectionTable().shmName());
 }
 
 const char* WINAPI usvfsVersionString()

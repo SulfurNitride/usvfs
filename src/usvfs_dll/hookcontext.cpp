@@ -101,6 +101,7 @@ void printBuffer(const char* buffer, size_t size)
 HookContext::HookContext(const usvfsParameters& params, HMODULE module)
     : m_ConfigurationSHM(bi::open_or_create, params.instanceName, 64 * 1024),
       m_Parameters(retrieveParameters(params)),
+      m_InitialMappingReadLock(m_Parameters, sharedContextLockEnabled()),
       m_MappingsPublishedLocally(m_Parameters->mappingsPublished()),
       m_Tree(m_Parameters->currentSHMName(),
              4 * 1024 * 1024,  // 4 MiB empirically covers most small setups without
@@ -135,6 +136,8 @@ HookContext::HookContext(const usvfsParameters& params, HMODULE module)
     USVFS_THROW_EXCEPTION(usage_error()
                           << ex_msg("shm not found") << ex_msg(params.instanceName));
   }
+
+  m_InitialMappingReadLock.release();
 }
 
 void HookContext::remove(const char* instanceName)
@@ -269,9 +272,31 @@ HookContext::ConstPtr HookContext::readAccess(const char* source)
   BOOST_ASSERT(s_Instance != nullptr);
 
   const auto waitStarted = profiling::beginLockWait();
-  const auto waitKind    = sharedContextLockEnabled()
-                               ? s_Instance->m_SharedMutex.lockShared()
-                               : s_Instance->m_Mutex.wait(200);
+  BenaphoreWaitKind waitKind;
+  if (sharedContextLockEnabled()) {
+    const bool outermost = !s_Instance->m_SharedMutex.heldByCurrentThread();
+    if (outermost) {
+      s_Instance->m_Parameters->lockMappingsShared();
+    }
+
+    try {
+      waitKind = s_Instance->m_SharedMutex.lockShared();
+      if (outermost) {
+        s_Instance->m_Tree.refresh();
+        s_Instance->m_InverseTree.refresh();
+      }
+    } catch (...) {
+      if (s_Instance->m_SharedMutex.heldByCurrentThread()) {
+        s_Instance->m_SharedMutex.unlockShared();
+      }
+      if (outermost) {
+        s_Instance->m_Parameters->unlockMappingsShared();
+      }
+      throw;
+    }
+  } else {
+    waitKind = s_Instance->m_Mutex.wait(200);
+  }
   profiling::lockAcquired(waitStarted, waitKind, false, source);
   return ConstPtr(s_Instance, unlockShared);
 }
@@ -281,9 +306,24 @@ HookContext::Ptr HookContext::writeAccess(const char* source)
   BOOST_ASSERT(s_Instance != nullptr);
 
   const auto waitStarted = profiling::beginLockWait();
-  const auto waitKind    = sharedContextLockEnabled()
-                               ? s_Instance->m_SharedMutex.lockExclusive()
-                               : s_Instance->m_Mutex.wait(200);
+  BenaphoreWaitKind waitKind;
+  if (sharedContextLockEnabled()) {
+    const bool outermost = !s_Instance->m_SharedMutex.heldByCurrentThread();
+    if (outermost) {
+      s_Instance->m_Parameters->lockMappingsExclusive();
+    }
+
+    try {
+      waitKind = s_Instance->m_SharedMutex.lockExclusive();
+    } catch (...) {
+      if (outermost) {
+        s_Instance->m_Parameters->unlockMappingsExclusive();
+      }
+      throw;
+    }
+  } else {
+    waitKind = s_Instance->m_Mutex.wait(200);
+  }
   profiling::lockAcquired(waitStarted, waitKind, true, source);
   return Ptr(s_Instance, unlock);
 }
@@ -450,19 +490,25 @@ std::vector<std::future<int>>& HookContext::delayed()
 void HookContext::unlock(HookContext* instance)
 {
   profiling::lockReleased();
-  if (sharedContextLockEnabled())
-    instance->m_SharedMutex.unlockExclusive();
-  else
+  if (sharedContextLockEnabled()) {
+    if (instance->m_SharedMutex.unlockExclusive()) {
+      instance->m_Parameters->unlockMappingsExclusive();
+    }
+  } else {
     instance->m_Mutex.signal();
+  }
 }
 
 void HookContext::unlockShared(const HookContext* instance)
 {
   profiling::lockReleased();
-  if (sharedContextLockEnabled())
-    instance->m_SharedMutex.unlockShared();
-  else
+  if (sharedContextLockEnabled()) {
+    if (instance->m_SharedMutex.unlockShared()) {
+      instance->m_Parameters->unlockMappingsShared();
+    }
+  } else {
     instance->m_Mutex.signal();
+  }
 }
 
 // deprecated

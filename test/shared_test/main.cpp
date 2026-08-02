@@ -318,6 +318,28 @@ TEST(DirectoryTreeTest, ConcurrentReadViewsSerializeOutdatedReassignment)
   EXPECT_EQ(writer.shmName(), reader.shmName());
 }
 
+TEST(DirectoryTreeTest, RefreshMovesRawAccessToCurrentGeneration)
+{
+  static const char shmName[] = "treetest_explicit_refresh";
+  shared_memory_object::remove(shmName);
+
+  ContainerType writer(shmName, 4096);
+  ContainerType reader(shmName, 4096);
+  const std::string initialName = reader.shmName();
+  std::string finalPath;
+
+  for (int i = 0; i < 10000 && writer.shmName() == initialName; ++i) {
+    finalPath = std::format(R"(C:\refresh\explicit_{:05}.txt)", i);
+    writer.addFile(finalPath, i, 0, false);
+  }
+
+  ASSERT_NE(initialName, writer.shmName());
+  reader.refresh();
+
+  EXPECT_EQ(writer.shmName(), reader.shmName());
+  EXPECT_NE(nullptr, reader.get()->findNode(finalPath).get());
+}
+
 TEST(DirectoryTreeTest, ReadViewPinsLocalAssignmentAgainstWriter)
 {
   using namespace std::chrono_literals;

@@ -99,16 +99,13 @@ class RerouteW
   bool m_PathCreated{false};
   bool m_NewReroute{false};
 
-  RedirectionTree::NodePtrT m_FileNode;
-
 public:
   RerouteW() = default;
 
   RerouteW(RerouteW&& reference)
       : m_Buffer(std::move(reference.m_Buffer)),
         m_RealPath(std::move(reference.m_RealPath)), m_Rerouted(reference.m_Rerouted),
-        m_PathCreated(reference.m_PathCreated), m_NewReroute(reference.m_NewReroute),
-        m_FileNode(std::move(reference.m_FileNode))
+        m_PathCreated(reference.m_PathCreated), m_NewReroute(reference.m_NewReroute)
   {
     m_FileName           = reference.m_FileName != nullptr ? m_Buffer.c_str() : nullptr;
     reference.m_FileName = nullptr;
@@ -122,7 +119,6 @@ public:
     m_PathCreated = reference.m_PathCreated;
     m_NewReroute  = reference.m_NewReroute;
     m_FileName    = reference.m_FileName != nullptr ? m_Buffer.c_str() : nullptr;
-    m_FileNode    = std::move(reference.m_FileNode);
     return *this;
   }
 
@@ -156,7 +152,7 @@ public:
           "mapping file in vfs: {}, {}",
           shared::string_cast<std::string>(m_RealPath, shared::CodePage::UTF8),
           shared::string_cast<std::string>(m_FileName, shared::CodePage::UTF8));
-      m_FileNode = context->redirectionTable().addFile(
+      context->redirectionTable().addFile(
           m_RealPath, RedirectionDataLocal(shared::string_cast<std::string>(
                           m_FileName, shared::CodePage::UTF8)));
 
@@ -187,8 +183,9 @@ public:
       addToDelete = true;
 
     if (wasRerouted()) {
-      if (m_FileNode.get()) {
-        if (m_FileNode->removeFromTree()) {
+      auto fileNode = writeContext->redirectionTable()->findNode(m_RealPath);
+      if (fileNode.get()) {
+        if (fileNode->removeFromTree()) {
           writeContext->recordMappingRemoval();
         }
       } else
@@ -413,18 +410,20 @@ public:
       } else {
         const RedirectionTreeContainer& table =
             inverse ? context->inverseTable() : context->redirectionTable();
-        result.m_FileNode = table->findNode(lookupPath);
+        // Shared-memory node pointers must not outlive the context read guard:
+        // another process can publish a replacement tree generation afterward.
+        auto fileNode = table->findNode(lookupPath);
         const bool treeFound =
-            result.m_FileNode.get() && (!result.m_FileNode->data().linkTarget.empty() ||
-                                        result.m_FileNode->isDirectory());
+            fileNode.get() &&
+            (!fileNode->data().linkTarget.empty() || fileNode->isDirectory());
         profiling::treeLookup(profiling::hashPath(lookupPath.c_str()), treeFound);
 
         if (treeFound) {
-          if (!result.m_FileNode->data().linkTarget.empty()) {
+          if (!fileNode->data().linkTarget.empty()) {
             result.m_Buffer = shared::string_cast<std::wstring>(
-                result.m_FileNode->data().linkTarget.c_str(), shared::CodePage::UTF8);
+                fileNode->data().linkTarget.c_str(), shared::CodePage::UTF8);
           } else {
-            result.m_Buffer = result.m_FileNode->path().wstring();
+            result.m_Buffer = fileNode->path().wstring();
           }
           found = true;
         }

@@ -209,6 +209,20 @@ public:
   const TreeT* operator->() const { return get(); }
 
   /**
+   * @brief Move this process to the current shared-memory generation, if needed.
+
+   * *
+   * Callers that use raw tree pointers must keep their higher-level mapping
+   *
+   * read lock for the complete traversal after refreshing.
+   */
+  void refresh()
+  {
+    std::unique_lock<std::shared_mutex> lock(m_LocalMutex);
+    refreshUnlocked();
+  }
+
+  /**
    * @return current name of the managed shared memory
    */
   std::string shmName() const { return m_SHMName; }
