@@ -1355,7 +1355,7 @@ NTSTATUS ntdll_mess_NtCreateFile(PHANDLE FileHandle, ACCESS_MASK DesiredAccess,
 
     if (res == STATUS_SUCCESS) {
       if (rerouter.newReroute())
-        rerouter.insertMapping(WRITE_CONTEXT());
+        rerouter.insertMapping(WRITE_MAPPING_CONTEXT());
 
       if (rerouter.isDir() && rerouter.wasRerouted() &&
           ((FileAttributes & FILE_OPEN_FOR_BACKUP_INTENT) ==

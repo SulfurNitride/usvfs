@@ -80,6 +80,8 @@ const char* mappingMutationName(MappingMutation mutation)
 }  // namespace
 
 HookContext* HookContext::s_Instance = nullptr;
+thread_local HookContext::MappingAccessMode HookContext::s_MappingAccessMode =
+    HookContext::MappingAccessMode::None;
 
 void printBuffer(const char* buffer, size_t size)
 {
@@ -278,6 +280,7 @@ HookContext::ConstPtr HookContext::readAccess(const char* source)
     const bool outermost = !s_Instance->m_SharedMutex.heldByCurrentThread();
     if (outermost) {
       s_Instance->m_MappingMutex.lockShared();
+      s_MappingAccessMode = MappingAccessMode::Shared;
     }
 
     try {
@@ -292,6 +295,7 @@ HookContext::ConstPtr HookContext::readAccess(const char* source)
       }
       if (outermost) {
         s_Instance->m_MappingMutex.unlockShared();
+        s_MappingAccessMode = MappingAccessMode::None;
       }
       throw;
     }
@@ -311,14 +315,16 @@ HookContext::Ptr HookContext::writeAccess(const char* source)
   if (sharedContextLockEnabled()) {
     const bool outermost = !s_Instance->m_SharedMutex.heldByCurrentThread();
     if (outermost) {
-      s_Instance->m_MappingMutex.lockExclusive();
+      s_Instance->m_MappingMutex.lockShared();
+      s_MappingAccessMode = MappingAccessMode::Shared;
     }
 
     try {
       waitKind = s_Instance->m_SharedMutex.lockExclusive();
     } catch (...) {
       if (outermost) {
-        s_Instance->m_MappingMutex.unlockExclusive();
+        s_Instance->m_MappingMutex.unlockShared();
+        s_MappingAccessMode = MappingAccessMode::None;
       }
       throw;
     }
@@ -327,6 +333,38 @@ HookContext::Ptr HookContext::writeAccess(const char* source)
   }
   profiling::lockAcquired(waitStarted, waitKind, true, source);
   return Ptr(s_Instance, unlock);
+}
+
+HookContext::Ptr HookContext::writeMappingAccess(const char* source)
+{
+  BOOST_ASSERT(s_Instance != nullptr);
+
+  const auto waitStarted = profiling::beginLockWait();
+  BenaphoreWaitKind waitKind;
+  if (sharedContextLockEnabled()) {
+    const bool outermost = !s_Instance->m_SharedMutex.heldByCurrentThread();
+    if (!outermost && s_MappingAccessMode != MappingAccessMode::Exclusive) {
+      throw std::logic_error("mapping lock upgrade is unsupported");
+    }
+    if (outermost) {
+      s_Instance->m_MappingMutex.lockExclusive();
+      s_MappingAccessMode = MappingAccessMode::Exclusive;
+    }
+
+    try {
+      waitKind = s_Instance->m_SharedMutex.lockExclusive();
+    } catch (...) {
+      if (outermost) {
+        s_Instance->m_MappingMutex.unlockExclusive();
+        s_MappingAccessMode = MappingAccessMode::None;
+      }
+      throw;
+    }
+  } else {
+    waitKind = s_Instance->m_Mutex.wait(200);
+  }
+  profiling::lockAcquired(waitStarted, waitKind, true, source);
+  return Ptr(s_Instance, unlockMapping);
 }
 
 void HookContext::setDebugParameters(LogLevel level, CrashDumpsType dumpType,
@@ -493,7 +531,23 @@ void HookContext::unlock(HookContext* instance)
   profiling::lockReleased();
   if (sharedContextLockEnabled()) {
     if (instance->m_SharedMutex.unlockExclusive()) {
+      BOOST_ASSERT(s_MappingAccessMode == MappingAccessMode::Shared);
+      instance->m_MappingMutex.unlockShared();
+      s_MappingAccessMode = MappingAccessMode::None;
+    }
+  } else {
+    instance->m_Mutex.signal();
+  }
+}
+
+void HookContext::unlockMapping(HookContext* instance)
+{
+  profiling::lockReleased();
+  if (sharedContextLockEnabled()) {
+    if (instance->m_SharedMutex.unlockExclusive()) {
+      BOOST_ASSERT(s_MappingAccessMode == MappingAccessMode::Exclusive);
       instance->m_MappingMutex.unlockExclusive();
+      s_MappingAccessMode = MappingAccessMode::None;
     }
   } else {
     instance->m_Mutex.signal();
@@ -505,7 +559,9 @@ void HookContext::unlockShared(const HookContext* instance)
   profiling::lockReleased();
   if (sharedContextLockEnabled()) {
     if (instance->m_SharedMutex.unlockShared()) {
+      BOOST_ASSERT(s_MappingAccessMode == MappingAccessMode::Shared);
       instance->m_MappingMutex.unlockShared();
+      s_MappingAccessMode = MappingAccessMode::None;
     }
   } else {
     instance->m_Mutex.signal();

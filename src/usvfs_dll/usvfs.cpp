@@ -572,7 +572,7 @@ BOOL WINAPI usvfsGetVFSProcessList2(size_t* count, DWORD** buffer)
 
 void WINAPI usvfsClearVirtualMappings()
 {
-  auto writeContext = WRITE_CONTEXT();
+  auto writeContext = WRITE_MAPPING_CONTEXT();
   writeContext->redirectionTable().clear();
   writeContext->inverseTable().clear();
 }
@@ -658,7 +658,7 @@ BOOL WINAPI usvfsVirtualLinkFile(LPCWSTR source, LPCWSTR destination,
   // TODO difference between winapi and ntdll api regarding system32 vs syswow64
   // (and other windows links?)
   try {
-    auto writeContext = WRITE_CONTEXT();
+    auto writeContext = WRITE_MAPPING_CONTEXT();
     if (!assertPathExists(writeContext->redirectionTable(), destination)) {
       SetLastError(ERROR_PATH_NOT_FOUND);
       return FALSE;
@@ -722,7 +722,7 @@ BOOL WINAPI usvfsVirtualLinkDirectoryStatic(LPCWSTR source, LPCWSTR destination,
 {
   // TODO change notification not yet implemented
   try {
-    auto writeContext = WRITE_CONTEXT();
+    auto writeContext = WRITE_MAPPING_CONTEXT();
     if ((flags & LINKFLAG_FAILIFEXISTS) && winapi::ex::wide::fileExists(destination)) {
       SetLastError(ERROR_FILE_EXISTS);
       return FALSE;

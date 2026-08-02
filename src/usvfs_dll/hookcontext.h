@@ -75,6 +75,11 @@ public:
   static Ptr writeAccess(const char* source);
 
   /**
+   * @brief get write access for an operation that can mutate a mapping tree.
+   */
+  static Ptr writeMappingAccess(const char* source);
+
+  /**
    * @return table containing file redirection information
    */
   RedirectionTreeContainer& redirectionTable() { return m_Tree; }
@@ -154,6 +159,7 @@ public:
 
 private:
   static void unlock(HookContext* instance);
+  static void unlockMapping(HookContext* instance);
   static void unlockShared(const HookContext* instance);
 
   SharedParameters* retrieveParameters(const usvfsParameters& params);
@@ -193,6 +199,13 @@ private:
   };
 
   static HookContext* s_Instance;
+  enum class MappingAccessMode
+  {
+    None,
+    Shared,
+    Exclusive
+  };
+  static thread_local MappingAccessMode s_MappingAccessMode;
 
   shared::SharedMemoryT m_ConfigurationSHM;
   SharedParameters* m_Parameters{nullptr};
@@ -236,6 +249,7 @@ private:
 
 #define READ_CONTEXT() HookContext::readAccess(__MYFUNC__)
 #define WRITE_CONTEXT() HookContext::writeAccess(__MYFUNC__)
+#define WRITE_MAPPING_CONTEXT() HookContext::writeMappingAccess(__MYFUNC__)
 
 #define HOOK_START_GROUP(group)                                                        \
   try {                                                                                \
