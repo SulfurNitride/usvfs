@@ -2,7 +2,14 @@ name: Build USVFS
 
 on:
   push:
-    branches: [master, dev/cmake, integration/wine-safe-candidates, perf/tree-read-view]
+    branches:
+      [
+        master,
+        dev/cmake,
+        integration/wine-safe-candidates,
+        perf/tree-read-view,
+        perf/tree-seal-observer,
+      ]
     tags:
       - "*"
   pull_request:
