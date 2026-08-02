@@ -101,7 +101,8 @@ void printBuffer(const char* buffer, size_t size)
 HookContext::HookContext(const usvfsParameters& params, HMODULE module)
     : m_ConfigurationSHM(bi::open_or_create, params.instanceName, 64 * 1024),
       m_Parameters(retrieveParameters(params)),
-      m_InitialMappingReadLock(m_Parameters, sharedContextLockEnabled()),
+      m_MappingMutex(params.instanceName, sharedContextLockEnabled()),
+      m_InitialMappingReadLock(&m_MappingMutex, sharedContextLockEnabled()),
       m_MappingsPublishedLocally(m_Parameters->mappingsPublished()),
       m_Tree(m_Parameters->currentSHMName(),
              4 * 1024 * 1024,  // 4 MiB empirically covers most small setups without
@@ -276,7 +277,7 @@ HookContext::ConstPtr HookContext::readAccess(const char* source)
   if (sharedContextLockEnabled()) {
     const bool outermost = !s_Instance->m_SharedMutex.heldByCurrentThread();
     if (outermost) {
-      s_Instance->m_Parameters->lockMappingsShared();
+      s_Instance->m_MappingMutex.lockShared();
     }
 
     try {
@@ -290,7 +291,7 @@ HookContext::ConstPtr HookContext::readAccess(const char* source)
         s_Instance->m_SharedMutex.unlockShared();
       }
       if (outermost) {
-        s_Instance->m_Parameters->unlockMappingsShared();
+        s_Instance->m_MappingMutex.unlockShared();
       }
       throw;
     }
@@ -310,14 +311,14 @@ HookContext::Ptr HookContext::writeAccess(const char* source)
   if (sharedContextLockEnabled()) {
     const bool outermost = !s_Instance->m_SharedMutex.heldByCurrentThread();
     if (outermost) {
-      s_Instance->m_Parameters->lockMappingsExclusive();
+      s_Instance->m_MappingMutex.lockExclusive();
     }
 
     try {
       waitKind = s_Instance->m_SharedMutex.lockExclusive();
     } catch (...) {
       if (outermost) {
-        s_Instance->m_Parameters->unlockMappingsExclusive();
+        s_Instance->m_MappingMutex.unlockExclusive();
       }
       throw;
     }
@@ -492,7 +493,7 @@ void HookContext::unlock(HookContext* instance)
   profiling::lockReleased();
   if (sharedContextLockEnabled()) {
     if (instance->m_SharedMutex.unlockExclusive()) {
-      instance->m_Parameters->unlockMappingsExclusive();
+      instance->m_MappingMutex.unlockExclusive();
     }
   } else {
     instance->m_Mutex.signal();
@@ -504,7 +505,7 @@ void HookContext::unlockShared(const HookContext* instance)
   profiling::lockReleased();
   if (sharedContextLockEnabled()) {
     if (instance->m_SharedMutex.unlockShared()) {
-      instance->m_Parameters->unlockMappingsShared();
+      instance->m_MappingMutex.unlockShared();
     }
   } else {
     instance->m_Mutex.signal();

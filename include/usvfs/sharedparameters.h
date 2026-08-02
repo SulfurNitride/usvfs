@@ -4,8 +4,6 @@
 #include "usvfsparameters.h"
 #include <shared_memory.h>
 
-#include <boost/interprocess/sync/interprocess_sharable_mutex.hpp>
-
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -70,11 +68,6 @@ public:
   std::string currentInverseSHMName() const;
   void setSHMNames(const std::string& current, const std::string& inverse);
 
-  void lockMappingsShared() const;
-  void unlockMappingsShared() const;
-  void lockMappingsExclusive() const;
-  void unlockMappingsExclusive() const;
-
   bool mappingsPublished() const;
   bool publishMappings();
   std::uint64_t recordMappingMutation(MappingTree tree, MappingMutation mutation);
@@ -135,7 +128,6 @@ private:
       boost::container::slist<ForcedLibrary, ForcedLibraryAllocatorT>;
 
   mutable bi::interprocess_mutex m_mutex;
-  mutable bi::interprocess_sharable_mutex m_mappingMutex;
   shared::StringT m_instanceName;
   shared::StringT m_currentSHMName;
   shared::StringT m_currentInverseSHMName;

@@ -21,6 +21,7 @@ along with usvfs. If not, see <http://www.gnu.org/licenses/>.
 #pragma once
 
 #include "dllimport.h"
+#include "mappingmutex.h"
 #include "redirectiontree.h"
 #include "semaphore.h"
 #include "tree_container.h"
@@ -164,37 +165,38 @@ private:
   class InitialMappingReadLock
   {
   public:
-    InitialMappingReadLock(SharedParameters* parameters, bool enabled)
-        : m_Parameters(enabled ? parameters : nullptr)
+    InitialMappingReadLock(InterprocessMappingMutex* mutex, bool enabled)
+        : m_Mutex(enabled ? mutex : nullptr)
     {
-      if (m_Parameters != nullptr) {
-        m_Parameters->lockMappingsShared();
+      if (m_Mutex != nullptr) {
+        m_Mutex->lockShared();
       }
     }
 
     ~InitialMappingReadLock()
     {
-      if (m_Parameters != nullptr) {
-        m_Parameters->unlockMappingsShared();
+      if (m_Mutex != nullptr) {
+        m_Mutex->unlockShared();
       }
     }
 
     void release()
     {
-      if (m_Parameters != nullptr) {
-        m_Parameters->unlockMappingsShared();
-        m_Parameters = nullptr;
+      if (m_Mutex != nullptr) {
+        m_Mutex->unlockShared();
+        m_Mutex = nullptr;
       }
     }
 
   private:
-    SharedParameters* m_Parameters;
+    InterprocessMappingMutex* m_Mutex;
   };
 
   static HookContext* s_Instance;
 
   shared::SharedMemoryT m_ConfigurationSHM;
   SharedParameters* m_Parameters{nullptr};
+  InterprocessMappingMutex m_MappingMutex;
   InitialMappingReadLock m_InitialMappingReadLock;
   mutable std::atomic<bool> m_MappingsPublishedLocally{false};
   RedirectionTreeContainer m_Tree;

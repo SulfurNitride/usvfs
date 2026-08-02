@@ -72,26 +72,6 @@ void SharedParameters::setSHMNames(const std::string& current,
   m_currentInverseSHMName.assign(inverse.begin(), inverse.end());
 }
 
-void SharedParameters::lockMappingsShared() const
-{
-  m_mappingMutex.lock_sharable();
-}
-
-void SharedParameters::unlockMappingsShared() const
-{
-  m_mappingMutex.unlock_sharable();
-}
-
-void SharedParameters::lockMappingsExclusive() const
-{
-  m_mappingMutex.lock();
-}
-
-void SharedParameters::unlockMappingsExclusive() const
-{
-  m_mappingMutex.unlock();
-}
-
 bool SharedParameters::mappingsPublished() const
 {
   bi::scoped_lock lock(m_mutex);

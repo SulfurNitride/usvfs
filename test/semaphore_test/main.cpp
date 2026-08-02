@@ -1,12 +1,19 @@
+#include "mappingmutex.h"
 #include "semaphore.h"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <format>
 #include <future>
 #include <thread>
 
 using namespace std::chrono_literals;
+
+static std::string mappingMutexName(const char* suffix)
+{
+  return std::format("mapping-mutex-test-{}-{}", ::GetCurrentProcessId(), suffix);
+}
 
 TEST(RecursiveBenaphoreTest, RecursiveOwnerExcludesAnotherThread)
 {
@@ -139,4 +146,67 @@ TEST(RecursiveSharedMutexTest, SupportsReadAndWriteRecursionWithoutUpgrade)
   EXPECT_FALSE(mutex.unlockExclusive());
   EXPECT_TRUE(mutex.unlockExclusive());
   EXPECT_FALSE(mutex.heldByCurrentThread());
+}
+
+TEST(InterprocessMappingMutexTest, NamedInstancesExcludeWriterFromReader)
+{
+  const auto name = mappingMutexName("coordination");
+  usvfs::InterprocessMappingMutex readerMutex(name.c_str(), true);
+  usvfs::InterprocessMappingMutex writerMutex(name.c_str(), true);
+  std::promise<void> readerReady;
+  std::promise<void> releaseReader;
+  std::promise<void> writerReady;
+  auto readerReadyFuture   = readerReady.get_future();
+  auto releaseReaderFuture = releaseReader.get_future();
+  auto writerReadyFuture   = writerReady.get_future();
+
+  std::thread reader([&]() {
+    readerMutex.lockShared();
+    readerReady.set_value();
+    releaseReaderFuture.wait();
+    readerMutex.unlockShared();
+  });
+  readerReadyFuture.wait();
+
+  std::thread writer([&]() {
+    writerMutex.lockExclusive();
+    writerReady.set_value();
+    writerMutex.unlockExclusive();
+  });
+
+  EXPECT_EQ(writerReadyFuture.wait_for(250ms), std::future_status::timeout);
+  releaseReader.set_value();
+  EXPECT_EQ(writerReadyFuture.wait_for(2s), std::future_status::ready);
+
+  reader.join();
+  writer.join();
+}
+
+TEST(InterprocessMappingMutexTest, RecoversAbandonedReaderAndWriterStripes)
+{
+  const auto name = mappingMutexName("abandonment");
+  usvfs::InterprocessMappingMutex abandoned(name.c_str(), true);
+  usvfs::InterprocessMappingMutex recovered(name.c_str(), true);
+
+  std::thread reader([&]() {
+    abandoned.lockShared();
+  });
+  reader.join();
+
+  EXPECT_NO_THROW({
+    recovered.lockExclusive();
+    recovered.unlockExclusive();
+  });
+
+  std::thread writer([&]() {
+    abandoned.lockExclusive();
+  });
+  writer.join();
+
+  EXPECT_NO_THROW({
+    recovered.lockShared();
+    recovered.unlockShared();
+    recovered.lockExclusive();
+    recovered.unlockExclusive();
+  });
 }
