@@ -62,14 +62,9 @@ public:
   /**
    * @brief Pins the process-local shared-memory assignment while reading.
    *
-
-   * * A const TreeContainer lookup may have to switch to a newer shared-memory
-   *
-   * block. Keeping the local read lock beside the pointer prevents another
-   * thread
-   * in this process from reassigning the container while the tree is
-   * being
-   * traversed.
+   * A const lookup may have to switch to a newer shared-memory block. Keeping
+   * the local read lock beside the pointer prevents another thread in this
+   * process from reassigning the container while the tree is being traversed.
    */
   class ReadView
   {
