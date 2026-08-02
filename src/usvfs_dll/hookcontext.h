@@ -262,7 +262,7 @@ private:
 #define READ_CONTEXT() ::usvfs::HookContext::readAccess(__MYFUNC__)
 #define WRITE_CONTEXT() ::usvfs::HookContext::writeAccess(__MYFUNC__)
 #define WRITE_MAPPING_CONTEXT() ::usvfs::HookContext::writeMappingAccess(__MYFUNC__)
-#define MAPPING_WRITE_INTENT_CONTEXT()                                                \
+#define MAPPING_WRITE_INTENT_CONTEXT()                                                 \
   ::usvfs::HookContext::mappingWriteIntentAccess(__MYFUNC__)
 
 #define HOOK_START_GROUP(group)                                                        \

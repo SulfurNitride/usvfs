@@ -1767,10 +1767,10 @@ BOOL WINAPI usvfs::hook_WritePrivateProfileStringA(LPCSTR lpAppName, LPCSTR lpKe
   }
 
   CreateRerouter reroute;
-  bool callOriginal = reroute.rerouteNew(
-      MAPPING_WRITE_INTENT_CONTEXT(), callContext,
-      ush::string_cast<std::wstring>(lpFileName).c_str(), true,
-      "hook_WritePrivateProfileStringA");
+  bool callOriginal =
+      reroute.rerouteNew(MAPPING_WRITE_INTENT_CONTEXT(), callContext,
+                         ush::string_cast<std::wstring>(lpFileName).c_str(), true,
+                         "hook_WritePrivateProfileStringA");
 
   if (callOriginal) {
     PRE_REALCALL
@@ -1813,9 +1813,9 @@ BOOL WINAPI usvfs::hook_WritePrivateProfileStringW(LPCWSTR lpAppName, LPCWSTR lp
   }
 
   CreateRerouter reroute;
-  bool callOriginal = reroute.rerouteNew(MAPPING_WRITE_INTENT_CONTEXT(), callContext,
-                                         lpFileName, true,
-                                         "hook_WritePrivateProfileStringW");
+  bool callOriginal =
+      reroute.rerouteNew(MAPPING_WRITE_INTENT_CONTEXT(), callContext, lpFileName, true,
+                         "hook_WritePrivateProfileStringW");
 
   if (callOriginal) {
     PRE_REALCALL
