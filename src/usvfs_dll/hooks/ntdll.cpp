@@ -566,11 +566,11 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
   bool firstSearch = false;
 
   // The iterator and every field in Searches::Info remain live and mutable for
-  // the complete query. Retaining exclusive context access is essential when
-  // shared-context locking is enabled; releasing it here would allow another
-  // nominally read-labelled hook to mutate or erase this search state.
+  // the complete query. Keep the dedicated recursive search lock after the
+  // broader context lock is released so unrelated read hooks can still run.
   HookContext::Ptr context = WRITE_CONTEXT();
   Searches& activeSearches = context->customData<Searches>(SearchInfo);
+  std::unique_lock<std::recursive_mutex> queryLock(activeSearches.queryMutex);
 
   if (RestartScan) {
     auto iter = activeSearches.info.find(FileHandle);
@@ -608,6 +608,7 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
     gatherVirtualEntries(searchPath, context->redirectionTable(), FileName,
                          infoIter->second);
   }
+  context.reset();
 
   ULONG dataRead               = Length;
   PVOID FileInformationCurrent = FileInformation;
@@ -738,9 +739,11 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
   bool firstSearch = false;
 
   // Keep the mutable search record and its iterator protected until the query
-  // has completely advanced, returned data and updated continuation state.
+  // has completely advanced, returned data and updated continuation state,
+  // without serializing unrelated read hooks for the backing I/O duration.
   HookContext::Ptr context = WRITE_CONTEXT();
   Searches& activeSearches = context->customData<Searches>(SearchInfo);
+  std::unique_lock<std::recursive_mutex> queryLock(activeSearches.queryMutex);
 
   if (QueryFlags & SL_RESTART_SCAN) {
     auto iter = activeSearches.info.find(FileHandle);
@@ -778,6 +781,7 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
     gatherVirtualEntries(searchPath, context->redirectionTable(), FileName,
                          infoIter->second);
   }
+  context.reset();
 
   ULONG dataRead               = Length;
   PVOID FileInformationCurrent = FileInformation;
@@ -1420,7 +1424,7 @@ NTSTATUS WINAPI usvfs::hook_NtClose(HANDLE Handle)
 
     {  // clean up search data associated with this handle part 1
       Searches& activeSearches = context->customData<Searches>(SearchInfo);
-      //      std::lock_guard<std::recursive_mutex> lock(activeSearches.queryMutex);
+      std::lock_guard<std::recursive_mutex> lock(activeSearches.queryMutex);
       auto iter = activeSearches.info.find(Handle);
       if (iter != activeSearches.info.end()) {
         if (iter->second.currentSearchHandle != INVALID_HANDLE_VALUE) {
