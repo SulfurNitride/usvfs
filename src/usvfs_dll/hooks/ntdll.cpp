@@ -1320,7 +1320,8 @@ NTSTATUS ntdll_mess_NtCreateFile(PHANDLE FileHandle, ACCESS_MASK DesiredAccess,
   ULONG originalDisposition = CreateDisposition;
   CreateRerouter rerouter;
   if (rerouter.rerouteCreate(
-          READ_CONTEXT(), callContext, inPathW, convertedDisposition, convertedAccess,
+          MAPPING_WRITE_INTENT_CONTEXT(), callContext, inPathW, convertedDisposition,
+          convertedAccess,
           (LPSECURITY_ATTRIBUTES)ObjectAttributes->SecurityDescriptor)) {
     switch (convertedDisposition) {
     case CREATE_NEW:

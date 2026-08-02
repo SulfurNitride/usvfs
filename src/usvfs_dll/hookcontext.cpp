@@ -385,6 +385,46 @@ HookContext::Ptr HookContext::writeMappingAccess(const char* source)
   return Ptr(s_Instance, unlockMapping);
 }
 
+HookContext::ConstPtr HookContext::mappingWriteIntentAccess(const char* source)
+{
+  BOOST_ASSERT(s_Instance != nullptr);
+
+  const auto waitStarted = profiling::beginLockWait();
+  BenaphoreWaitKind waitKind;
+  if (sharedContextLockEnabled()) {
+    const bool outermost = !s_Instance->m_SharedMutex.heldByCurrentThread();
+    if (!outermost && s_MappingAccessMode != MappingAccessMode::Exclusive) {
+      throw std::logic_error("mapping lock upgrade is unsupported");
+    }
+    if (outermost) {
+      s_Instance->m_MappingMutex.lockExclusive();
+      s_MappingAccessMode = MappingAccessMode::Exclusive;
+    }
+
+    try {
+      waitKind = s_Instance->m_SharedMutex.lockExclusive();
+      if (outermost) {
+        s_Instance->m_Tree.refresh();
+        s_Instance->m_InverseTree.refresh();
+        s_MappingWriteUncaughtExceptions = std::uncaught_exceptions();
+      }
+    } catch (...) {
+      if (s_Instance->m_SharedMutex.heldByCurrentThread()) {
+        s_Instance->m_SharedMutex.unlockExclusive();
+      }
+      if (outermost) {
+        s_Instance->m_MappingMutex.unlockExclusive();
+        s_MappingAccessMode = MappingAccessMode::None;
+      }
+      throw;
+    }
+  } else {
+    waitKind = s_Instance->m_Mutex.wait(200);
+  }
+  profiling::lockAcquired(waitStarted, waitKind, true, source);
+  return ConstPtr(s_Instance, unlockMappingIntent);
+}
+
 void HookContext::setDebugParameters(LogLevel level, CrashDumpsType dumpType,
                                      const std::string& dumpPath,
                                      std::chrono::milliseconds delayProcess)
@@ -571,6 +611,11 @@ void HookContext::unlockMapping(HookContext* instance)
   } else {
     instance->m_Mutex.signal();
   }
+}
+
+void HookContext::unlockMappingIntent(const HookContext* instance)
+{
+  unlockMapping(const_cast<HookContext*>(instance));
 }
 
 void HookContext::unlockShared(const HookContext* instance)

@@ -662,7 +662,7 @@ BOOL WINAPI usvfs::hook_MoveFileW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFileN
   DWORD newFlags    = 0;
 
   {
-    auto context = READ_CONTEXT();
+    auto context = MAPPING_WRITE_INTENT_CONTEXT();
     readReroute  = RerouteW::create(context, callContext, lpExistingFileName);
     callOriginal = writeReroute.rerouteNew(context, callContext, lpNewFileName, false,
                                            "hook_MoveFileW");
@@ -800,7 +800,7 @@ BOOL WINAPI usvfs::hook_MoveFileExW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFil
   DWORD newFlags    = dwFlags;
 
   {
-    auto context = READ_CONTEXT();
+    auto context = MAPPING_WRITE_INTENT_CONTEXT();
     readReroute  = RerouteW::create(context, callContext, lpExistingFileName);
     callOriginal = writeReroute.rerouteNew(context, callContext, lpNewFileName,
                                            newFlags & MOVEFILE_REPLACE_EXISTING,
@@ -946,7 +946,7 @@ BOOL WINAPI usvfs::hook_MoveFileWithProgressW(LPCWSTR lpExistingFileName,
   DWORD newFlags    = dwFlags;
 
   {
-    auto context = READ_CONTEXT();
+    auto context = MAPPING_WRITE_INTENT_CONTEXT();
     readReroute  = RerouteW::create(context, callContext, lpExistingFileName);
     callOriginal = writeReroute.rerouteNew(context, callContext, lpNewFileName,
                                            newFlags & MOVEFILE_REPLACE_EXISTING,
@@ -1051,7 +1051,7 @@ BOOL WINAPI usvfs::hook_CopyFileExW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFil
   bool callOriginal = true;
 
   {
-    auto context = READ_CONTEXT();
+    auto context = MAPPING_WRITE_INTENT_CONTEXT();
     readReroute  = RerouteW::create(context, callContext, lpExistingFileName);
     callOriginal = writeReroute.rerouteNew(
         context, callContext, lpNewFileName,
@@ -1214,7 +1214,8 @@ DLLEXPORT BOOL WINAPI usvfs::hook_CreateDirectoryW(
   BOOL res = FALSE;
   HOOK_START
 
-  RerouteW reroute = RerouteW::createOrNew(READ_CONTEXT(), callContext, lpPathName);
+  RerouteW reroute =
+      RerouteW::createOrNew(MAPPING_WRITE_INTENT_CONTEXT(), callContext, lpPathName);
 
   PRE_REALCALL
   res = ::CreateDirectoryW(reroute.fileName(), lpSecurityAttributes);
@@ -1568,7 +1569,7 @@ HRESULT WINAPI usvfs::hook_CopyFile2(PCWSTR pwszExistingFileName,
   bool callOriginal = true;
 
   {
-    auto context = READ_CONTEXT();
+    auto context = MAPPING_WRITE_INTENT_CONTEXT();
     readReroute  = RerouteW::create(context, callContext, pwszExistingFileName);
     callOriginal = writeReroute.rerouteNew(
         context, callContext, pwszNewFileName,
@@ -1767,8 +1768,9 @@ BOOL WINAPI usvfs::hook_WritePrivateProfileStringA(LPCSTR lpAppName, LPCSTR lpKe
 
   CreateRerouter reroute;
   bool callOriginal = reroute.rerouteNew(
-      READ_CONTEXT(), callContext, ush::string_cast<std::wstring>(lpFileName).c_str(),
-      true, "hook_WritePrivateProfileStringA");
+      MAPPING_WRITE_INTENT_CONTEXT(), callContext,
+      ush::string_cast<std::wstring>(lpFileName).c_str(), true,
+      "hook_WritePrivateProfileStringA");
 
   if (callOriginal) {
     PRE_REALCALL
@@ -1811,7 +1813,8 @@ BOOL WINAPI usvfs::hook_WritePrivateProfileStringW(LPCWSTR lpAppName, LPCWSTR lp
   }
 
   CreateRerouter reroute;
-  bool callOriginal = reroute.rerouteNew(READ_CONTEXT(), callContext, lpFileName, true,
+  bool callOriginal = reroute.rerouteNew(MAPPING_WRITE_INTENT_CONTEXT(), callContext,
+                                         lpFileName, true,
                                          "hook_WritePrivateProfileStringW");
 
   if (callOriginal) {

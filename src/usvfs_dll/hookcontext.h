@@ -80,6 +80,16 @@ public:
   static Ptr writeMappingAccess(const char* source);
 
   /**
+   * @brief get const access while reserving mapping-tree write intent.
+   *
+   * Some path-resolution helpers make re-entrant hooked calls which may update
+   * the mapping tree. Taking write intent before entering those helpers avoids
+   * an unsafe shared-to-exclusive lock upgrade while keeping their direct
+   * access to HookContext const.
+   */
+  static ConstPtr mappingWriteIntentAccess(const char* source);
+
+  /**
    * @return table containing file redirection information
    */
   RedirectionTreeContainer& redirectionTable() { return m_Tree; }
@@ -160,6 +170,7 @@ public:
 private:
   static void unlock(HookContext* instance);
   static void unlockMapping(HookContext* instance);
+  static void unlockMappingIntent(const HookContext* instance);
   static void unlockShared(const HookContext* instance);
 
   SharedParameters* retrieveParameters(const usvfsParameters& params);
@@ -251,6 +262,8 @@ private:
 #define READ_CONTEXT() ::usvfs::HookContext::readAccess(__MYFUNC__)
 #define WRITE_CONTEXT() ::usvfs::HookContext::writeAccess(__MYFUNC__)
 #define WRITE_MAPPING_CONTEXT() ::usvfs::HookContext::writeMappingAccess(__MYFUNC__)
+#define MAPPING_WRITE_INTENT_CONTEXT()                                                \
+  ::usvfs::HookContext::mappingWriteIntentAccess(__MYFUNC__)
 
 #define HOOK_START_GROUP(group)                                                        \
   try {                                                                                \
