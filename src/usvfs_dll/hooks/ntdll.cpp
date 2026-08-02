@@ -662,7 +662,7 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
                                    ReturnSingleEntry, dataRead)) {
           // a positive result here means the call returned data and there may
           // be further objects to be retrieved by repeating the call
-          dataReturned                                 = true;
+          dataReturned = true;
           infoIter->second.currentVirtualMatchComplete =
               exactVirtualQueryExhaustionEnabled();
         } else {
@@ -837,7 +837,7 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
                                    QueryFlags & SL_RETURN_SINGLE_ENTRY, dataRead)) {
           // a positive result here means the call returned data and there may
           // be further objects to be retrieved by repeating the call
-          dataReturned                                 = true;
+          dataReturned = true;
           infoIter->second.currentVirtualMatchComplete =
               exactVirtualQueryExhaustionEnabled();
         } else {
