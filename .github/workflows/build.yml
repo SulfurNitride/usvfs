@@ -132,6 +132,12 @@ jobs:
         if: always()
       - run: ./test/bin/tvfs_test_${{ matrix.arch }}.exe
         if: always()
+      - name: Test exact-query experiment enabled
+        shell: pwsh
+        run: |
+          $env:FLUORINE_USVFS_EXACT_QUERY_EXHAUSTION = "1"
+          ./test/bin/tvfs_test_${{ matrix.arch }}.exe --gtest_filter="USVFSTest.NtQueryDirectoryFileFindsVirtualFile:USVFSTest.NtQueryDirectoryExactVirtualFileAbiMatrix"
+        if: always()
       - run: ./test/bin/usvfs_test_runner_${{ matrix.arch }}.exe
         if: always()
       - run: ./test/bin/usvfs_global_test_runner_${{ matrix.arch }}.exe

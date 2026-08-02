@@ -120,6 +120,19 @@ private:
 
 HandleTracker ntdllHandleTracker;
 
+bool exactVirtualQueryExhaustionEnabled()
+{
+  static const bool enabled = []() {
+    wchar_t value[16]{};
+    const DWORD length = ::GetEnvironmentVariableW(
+        L"FLUORINE_USVFS_EXACT_QUERY_EXHAUSTION", value, ARRAYSIZE(value));
+    return length > 0 && length < ARRAYSIZE(value) &&
+           (_wcsicmp(value, L"1") == 0 || _wcsicmp(value, L"true") == 0 ||
+            _wcsicmp(value, L"on") == 0);
+  }();
+  return enabled;
+}
+
 UnicodeString CreateUnicodeString(const OBJECT_ATTRIBUTES* objectAttributes)
 {
   UnicodeString result = ntdllHandleTracker.lookup(objectAttributes->RootDirectory);
@@ -633,7 +646,8 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
   if (!moreRegular) {
     // add virtual results
     while (!dataReturned && infoIter->second.virtualMatches.size() > 0) {
-      if (infoIter->second.currentVirtualMatchComplete) {
+      if (exactVirtualQueryExhaustionEnabled() &&
+          infoIter->second.currentVirtualMatchComplete) {
         infoIter->second.virtualMatches.pop();
         CloseHandle(infoIter->second.currentSearchHandle);
         infoIter->second.currentSearchHandle         = INVALID_HANDLE_VALUE;
@@ -649,7 +663,8 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFile(
           // a positive result here means the call returned data and there may
           // be further objects to be retrieved by repeating the call
           dataReturned                                 = true;
-          infoIter->second.currentVirtualMatchComplete = true;
+          infoIter->second.currentVirtualMatchComplete =
+              exactVirtualQueryExhaustionEnabled();
         } else {
           // proceed to next search handle
 
@@ -806,7 +821,8 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
   if (!moreRegular) {
     // add virtual results
     while (!dataReturned && infoIter->second.virtualMatches.size() > 0) {
-      if (infoIter->second.currentVirtualMatchComplete) {
+      if (exactVirtualQueryExhaustionEnabled() &&
+          infoIter->second.currentVirtualMatchComplete) {
         infoIter->second.virtualMatches.pop();
         CloseHandle(infoIter->second.currentSearchHandle);
         infoIter->second.currentSearchHandle         = INVALID_HANDLE_VALUE;
@@ -822,7 +838,8 @@ NTSTATUS WINAPI usvfs::hook_NtQueryDirectoryFileEx(
           // a positive result here means the call returned data and there may
           // be further objects to be retrieved by repeating the call
           dataReturned                                 = true;
-          infoIter->second.currentVirtualMatchComplete = true;
+          infoIter->second.currentVirtualMatchComplete =
+              exactVirtualQueryExhaustionEnabled();
         } else {
           // proceed to next search handle
 
