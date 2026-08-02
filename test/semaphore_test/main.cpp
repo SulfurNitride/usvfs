@@ -180,11 +180,16 @@ TEST(InterprocessMappingMutexTest, NamedInstancesExcludeWriterFromReader)
 
   reader.join();
   writer.join();
+
+  EXPECT_NO_THROW({
+    readerMutex.lockShared();
+    readerMutex.unlockShared();
+  });
 }
 
-TEST(InterprocessMappingMutexTest, RecoversAbandonedReaderAndWriterStripes)
+TEST(InterprocessMappingMutexTest, RecoversAbandonedReaderStripe)
 {
-  const auto name = mappingMutexName("abandonment");
+  const auto name = mappingMutexName("reader-abandonment");
   usvfs::InterprocessMappingMutex abandoned(name.c_str(), true);
   usvfs::InterprocessMappingMutex recovered(name.c_str(), true);
 
@@ -197,16 +202,19 @@ TEST(InterprocessMappingMutexTest, RecoversAbandonedReaderAndWriterStripes)
     recovered.lockExclusive();
     recovered.unlockExclusive();
   });
+}
+
+TEST(InterprocessMappingMutexTest, RejectsAbandonedWriterState)
+{
+  const auto name = mappingMutexName("writer-abandonment");
+  usvfs::InterprocessMappingMutex abandoned(name.c_str(), true);
+  usvfs::InterprocessMappingMutex recovered(name.c_str(), true);
 
   std::thread writer([&]() {
     abandoned.lockExclusive();
   });
   writer.join();
 
-  EXPECT_NO_THROW({
-    recovered.lockShared();
-    recovered.unlockShared();
-    recovered.lockExclusive();
-    recovered.unlockExclusive();
-  });
+  EXPECT_THROW(recovered.lockShared(), std::runtime_error);
+  EXPECT_THROW(recovered.lockExclusive(), std::runtime_error);
 }

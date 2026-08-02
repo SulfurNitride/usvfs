@@ -206,6 +206,7 @@ private:
     Exclusive
   };
   static thread_local MappingAccessMode s_MappingAccessMode;
+  static thread_local int s_MappingWriteUncaughtExceptions;
 
   shared::SharedMemoryT m_ConfigurationSHM;
   SharedParameters* m_Parameters{nullptr};

@@ -29,6 +29,8 @@ along with usvfs. If not, see <http://www.gnu.org/licenses/>.
 #include <usvfsparameters.h>
 #include <winapi.h>
 
+#include <exception>
+
 namespace bi = boost::interprocess;
 using usvfs::shared::SharedMemoryT;
 using usvfs::shared::VoidAllocatorT;
@@ -82,6 +84,7 @@ const char* mappingMutationName(MappingMutation mutation)
 HookContext* HookContext::s_Instance = nullptr;
 thread_local HookContext::MappingAccessMode HookContext::s_MappingAccessMode =
     HookContext::MappingAccessMode::None;
+thread_local int HookContext::s_MappingWriteUncaughtExceptions = 0;
 
 void printBuffer(const char* buffer, size_t size)
 {
@@ -363,6 +366,7 @@ HookContext::Ptr HookContext::writeMappingAccess(const char* source)
       if (outermost) {
         s_Instance->m_Tree.refresh();
         s_Instance->m_InverseTree.refresh();
+        s_MappingWriteUncaughtExceptions = std::uncaught_exceptions();
       }
     } catch (...) {
       if (s_Instance->m_SharedMutex.heldByCurrentThread()) {
@@ -560,7 +564,8 @@ void HookContext::unlockMapping(HookContext* instance)
   if (sharedContextLockEnabled()) {
     if (instance->m_SharedMutex.unlockExclusive()) {
       BOOST_ASSERT(s_MappingAccessMode == MappingAccessMode::Exclusive);
-      instance->m_MappingMutex.unlockExclusive();
+      instance->m_MappingMutex.unlockExclusive(std::uncaught_exceptions() <=
+                                               s_MappingWriteUncaughtExceptions);
       s_MappingAccessMode = MappingAccessMode::None;
     }
   } else {

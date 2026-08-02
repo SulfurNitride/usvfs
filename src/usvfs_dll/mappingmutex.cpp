@@ -40,6 +40,12 @@ InterprocessMappingMutex::InterprocessMappingMutex(const char* instanceName,
       throw std::runtime_error("failed to create mapping writer gate");
     }
 
+    m_WriteInProgress = ::CreateEventW(
+        nullptr, TRUE, FALSE, objectName(instanceName, L"write-in-progress").c_str());
+    if (m_WriteInProgress == nullptr) {
+      throw std::runtime_error("failed to create mapping write-state event");
+    }
+
     for (std::size_t i = 0; i < m_Stripes.size(); ++i) {
       m_Stripes[i] = ::CreateMutexW(nullptr, FALSE,
                                     objectName(instanceName, L"stripe", i).c_str());
@@ -56,6 +62,9 @@ InterprocessMappingMutex::InterprocessMappingMutex(const char* instanceName,
     if (m_Gate != nullptr) {
       ::CloseHandle(m_Gate);
     }
+    if (m_WriteInProgress != nullptr) {
+      ::CloseHandle(m_WriteInProgress);
+    }
     throw;
   }
 }
@@ -70,6 +79,9 @@ InterprocessMappingMutex::~InterprocessMappingMutex()
   if (m_Gate != nullptr) {
     ::CloseHandle(m_Gate);
   }
+  if (m_WriteInProgress != nullptr) {
+    ::CloseHandle(m_WriteInProgress);
+  }
 }
 
 void InterprocessMappingMutex::lockShared() const
@@ -80,9 +92,15 @@ void InterprocessMappingMutex::lockShared() const
 
   acquire(m_Gate, "writer gate");
   const std::size_t stripe = ::GetCurrentThreadId() % m_Stripes.size();
+  bool stripeAcquired      = false;
   try {
     acquire(m_Stripes[stripe], "reader stripe");
+    stripeAcquired = true;
+    ensureWriteStateIsClean();
   } catch (...) {
+    if (stripeAcquired) {
+      release(m_Stripes[stripe], "reader stripe");
+    }
     release(m_Gate, "writer gate");
     throw;
   }
@@ -111,6 +129,10 @@ void InterprocessMappingMutex::lockExclusive() const
     for (; acquired < m_Stripes.size(); ++acquired) {
       acquire(m_Stripes[acquired], "reader stripe");
     }
+    ensureWriteStateIsClean();
+    if (::SetEvent(m_WriteInProgress) == FALSE) {
+      throw std::runtime_error("failed to mark mapping write in progress");
+    }
   } catch (...) {
     while (acquired > 0) {
       release(m_Stripes[--acquired], "reader stripe");
@@ -121,15 +143,46 @@ void InterprocessMappingMutex::lockExclusive() const
   release(m_Gate, "writer gate");
 }
 
-void InterprocessMappingMutex::unlockExclusive() const
+void InterprocessMappingMutex::unlockExclusive(bool commit) const noexcept
 {
   if (!m_Enabled) {
     return;
   }
 
+  if (commit) {
+    if (::ResetEvent(m_WriteInProgress) == FALSE) {
+      try {
+        if (auto logger = spdlog::get("usvfs")) {
+          logger->error("failed to commit interprocess mapping write state");
+        }
+      } catch (...) {
+      }
+    }
+  } else {
+    try {
+      if (auto logger = spdlog::get("usvfs")) {
+        logger->critical("mapping write failed; refusing further access to this "
+                         "mapping instance");
+      }
+    } catch (...) {
+    }
+  }
+
   for (std::size_t i = m_Stripes.size(); i > 0; --i) {
     release(m_Stripes[i - 1], "reader stripe");
   }
+}
+
+void InterprocessMappingMutex::ensureWriteStateIsClean() const
+{
+  const DWORD state = ::WaitForSingleObject(m_WriteInProgress, 0);
+  if (state == WAIT_TIMEOUT) {
+    return;
+  }
+  if (state == WAIT_OBJECT_0) {
+    throw std::runtime_error("mapping instance was left in an incomplete write state");
+  }
+  throw std::runtime_error("failed to inspect interprocess mapping write state");
 }
 
 std::wstring InterprocessMappingMutex::objectName(const char* instanceName,
