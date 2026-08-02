@@ -181,11 +181,6 @@ void HookContext::recordMappingRemoval(MappingTree tree) noexcept
   recordMappingMutation(tree, MappingMutation::Remove);
 }
 
-MappingPublicationStats HookContext::mappingPublicationStats() const
-{
-  return m_Parameters->mappingPublicationStats();
-}
-
 void HookContext::observeMappingMutation(MappingTree tree,
                                          shared::TreeMutation mutation) noexcept
 {
@@ -227,7 +222,7 @@ void HookContext::recordMappingMutation(MappingTree tree,
 void HookContext::emitMappingPublicationSummary() const noexcept
 {
   try {
-    const auto stats = mappingPublicationStats();
+    const auto stats = m_Parameters->mappingPublicationStats();
     spdlog::get("usvfs")->info(
         "[tree-publication] summary published={} publish_calls={} "
         "post_publish_mutations={} redirection={} inverse={} clear={} add_file={} "

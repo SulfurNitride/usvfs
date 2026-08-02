@@ -87,9 +87,8 @@ public:
 
   const RedirectionTreeContainer& inverseTable() const { return m_InverseTree; }
 
-  void publishMappings() const noexcept;
+  DLLEXPORT void publishMappings() const noexcept;
   void recordMappingRemoval(MappingTree tree = MappingTree::Redirection) noexcept;
-  MappingPublicationStats mappingPublicationStats() const;
 
   /**
    * @return the parameters passed in on dll initialisation

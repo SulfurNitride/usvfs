@@ -192,14 +192,20 @@ TEST_F(USVFSTest, PublicationBoundaryCountsOnlyLaterMutationsAcrossMappings)
 {
   static const char instanceName[] = "usvfs_publication_boundary_test";
   auto params                      = defaultUsvfsParams(instanceName);
-  usvfs::HookContext::remove(instanceName);
+  boost::interprocess::shared_memory_object::remove(instanceName);
 
-  auto context =
-      std::make_unique<usvfs::HookContext>(*params, ::GetModuleHandle(nullptr));
+  std::unique_ptr<usvfs::HookContext> context(
+      usvfsCreateHookContext(*params, ::GetModuleHandle(nullptr)));
+
+  usvfs::shared::SharedMemoryT secondMapping(boost::interprocess::open_only,
+                                             instanceName);
+  const auto sharedParameters =
+      secondMapping.find<usvfs::SharedParameters>("parameters");
+  ASSERT_NE(nullptr, sharedParameters.first);
 
   context->redirectionTable().addFile(R"(C:\before\publication.txt)",
                                       usvfs::RedirectionDataLocal(REAL_FILEA));
-  EXPECT_EQ(0, context->mappingPublicationStats().postPublishMutations);
+  EXPECT_EQ(0, sharedParameters.first->mappingPublicationStats().postPublishMutations);
 
   context->publishMappings();
   context->publishMappings();
@@ -211,15 +217,10 @@ TEST_F(USVFSTest, PublicationBoundaryCountsOnlyLaterMutationsAcrossMappings)
                                   usvfs::RedirectionDataLocal(VIRTUAL_FILEA));
   context->redirectionTable().clear();
 
-  usvfs::shared::SharedMemoryT secondMapping(boost::interprocess::open_only,
-                                             instanceName);
-  const auto sharedParameters =
-      secondMapping.find<usvfs::SharedParameters>("parameters");
-  ASSERT_NE(nullptr, sharedParameters.first);
   sharedParameters.first->recordMappingMutation(usvfs::MappingTree::Redirection,
                                                 usvfs::MappingMutation::Remove);
 
-  const auto stats = context->mappingPublicationStats();
+  const auto stats = sharedParameters.first->mappingPublicationStats();
   EXPECT_TRUE(stats.published);
   EXPECT_EQ(2, stats.publishCalls);
   EXPECT_EQ(5, stats.postPublishMutations);
