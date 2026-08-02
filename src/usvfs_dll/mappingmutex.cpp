@@ -72,7 +72,7 @@ InterprocessMappingMutex::~InterprocessMappingMutex()
   }
 }
 
-void InterprocessMappingMutex::lockShared()
+void InterprocessMappingMutex::lockShared() const
 {
   if (!m_Enabled) {
     return;
@@ -89,7 +89,7 @@ void InterprocessMappingMutex::lockShared()
   release(m_Gate, "writer gate");
 }
 
-void InterprocessMappingMutex::unlockShared()
+void InterprocessMappingMutex::unlockShared() const
 {
   if (!m_Enabled) {
     return;
@@ -99,7 +99,7 @@ void InterprocessMappingMutex::unlockShared()
   release(m_Stripes[stripe], "reader stripe");
 }
 
-void InterprocessMappingMutex::lockExclusive()
+void InterprocessMappingMutex::lockExclusive() const
 {
   if (!m_Enabled) {
     return;
@@ -121,7 +121,7 @@ void InterprocessMappingMutex::lockExclusive()
   release(m_Gate, "writer gate");
 }
 
-void InterprocessMappingMutex::unlockExclusive()
+void InterprocessMappingMutex::unlockExclusive() const
 {
   if (!m_Enabled) {
     return;

@@ -26,10 +26,10 @@ public:
   InterprocessMappingMutex(const InterprocessMappingMutex&)            = delete;
   InterprocessMappingMutex& operator=(const InterprocessMappingMutex&) = delete;
 
-  void lockShared();
-  void unlockShared();
-  void lockExclusive();
-  void unlockExclusive();
+  void lockShared() const;
+  void unlockShared() const;
+  void lockExclusive() const;
+  void unlockExclusive() const;
 
 private:
   static std::wstring objectName(const char* instanceName, const wchar_t* kind,
