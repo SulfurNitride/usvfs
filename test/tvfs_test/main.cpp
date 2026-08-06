@@ -745,6 +745,35 @@ TEST_F(USVFSTestAuto, CanCreateMultipleLinks)
                      FILE_ATTRIBUTE_DIRECTORY);
 }
 
+TEST_F(USVFSTestAuto, CanBulkImportResolvedLinks)
+{
+  static LPCWSTR outFile = LR"(C:\snapshot-notepad.exe)";
+  static LPCWSTR outDir  = LR"(C:\snapshot-logs)";
+  const std::array<usvfsVirtualMapping, 2> mappings{{
+      {REAL_DIRW, outDir, LINKFLAG_DIRECTORY},
+      {REAL_FILEW, outFile, 0},
+  }};
+
+  ASSERT_EQ(TRUE, usvfsVirtualLinkMappings(mappings.data(), mappings.size()));
+  ASSERT_NE(INVALID_FILE_ATTRIBUTES, usvfs::hook_GetFileAttributesW(outFile));
+  ASSERT_NE(INVALID_FILE_ATTRIBUTES, usvfs::hook_GetFileAttributesW(outDir));
+  ASSERT_EQ(0UL, usvfs::hook_GetFileAttributesW(outFile) & FILE_ATTRIBUTE_DIRECTORY);
+  ASSERT_NE(0UL,
+            usvfs::hook_GetFileAttributesW(outDir) & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+TEST_F(USVFSTestAuto, BulkImportRejectsInvalidEntriesBeforeMutation)
+{
+  static LPCWSTR outFile = LR"(C:\snapshot-invalid.exe)";
+  const std::array<usvfsVirtualMapping, 2> mappings{{
+      {REAL_FILEW, outFile, 0},
+      {nullptr, LR"(C:\never-created.exe)", 0},
+  }};
+
+  ASSERT_EQ(FALSE, usvfsVirtualLinkMappings(mappings.data(), mappings.size()));
+  ASSERT_EQ(INVALID_FILE_ATTRIBUTES, usvfs::hook_GetFileAttributesW(outFile));
+}
+
 int main(int argc, char** argv)
 {
   using namespace test;

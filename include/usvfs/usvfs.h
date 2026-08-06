@@ -58,6 +58,22 @@ static const unsigned int LINKFLAG_FAILIFSKIPPED =
                  // the skip file suffixes or skip directories list in
                  // the sharedparameters class, those lists are checked during virtual
                  // linking
+static const unsigned int LINKFLAG_DIRECTORY =
+    0x00000020;  // bulk-link entry describes a directory rather than a file
+
+/**
+ * One already-resolved virtual mapping for usvfsVirtualLinkMappings().
+ *
+ * The pointed-to strings only need to remain valid for the duration of the
+ * call. LINKFLAG_DIRECTORY distinguishes directory entries; the remaining
+ * LINKFLAG_* values retain their ordinary meanings.
+ */
+struct usvfsVirtualMapping
+{
+  LPCWSTR source;
+  LPCWSTR destination;
+  unsigned int flags;
+};
 
 extern "C"
 {
@@ -84,6 +100,17 @@ extern "C"
   DLLEXPORT BOOL WINAPI usvfsVirtualLinkDirectoryStatic(LPCWSTR source,
                                                         LPCWSTR destination,
                                                         unsigned int flags);
+
+  /**
+   * Bulk-import an already-resolved mapping snapshot.
+   *
+   * Unlike repeated usvfsVirtualLinkFile calls, this holds the controller's
+   * mapping context for the complete snapshot and publishes shared-memory
+   * parameters once. Entries must be ordered with parents before children.
+   * Existing entries are replaced, matching the normal ordered-link behavior.
+   */
+  DLLEXPORT BOOL WINAPI usvfsVirtualLinkMappings(
+      const usvfsVirtualMapping* mappings, size_t count);
 
   /**
    * connect to a virtual filesystem as a controller, without hooking the calling
