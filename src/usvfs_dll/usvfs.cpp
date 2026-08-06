@@ -35,6 +35,7 @@ along with usvfs. If not, see <http://www.gnu.org/licenses/>.
 // note that there's a mix of boost and std filesystem stuff in this file and
 // that they're not completely compatible
 #include <filesystem>
+#include <limits>
 
 namespace bfs = boost::filesystem;
 namespace ush = usvfs::shared;
@@ -809,6 +810,97 @@ BOOL WINAPI usvfsVirtualLinkDirectoryStatic(LPCWSTR source, LPCWSTR destination,
   } catch (const std::exception& e) {
     spdlog::get("usvfs")->error("failed to copy file {}", e.what());
     // TODO: no clue what's wrong
+    SetLastError(ERROR_INVALID_DATA);
+    return FALSE;
+  }
+}
+
+BOOL WINAPI usvfsVirtualLinkMappings(const usvfsVirtualMapping* mappings,
+                                     size_t count)
+{
+  if ((mappings == nullptr && count != 0) ||
+      count > static_cast<size_t>(std::numeric_limits<DWORD>::max())) {
+    SetLastError(ERROR_INVALID_PARAMETER);
+    return FALSE;
+  }
+
+  try {
+    // Validate the complete caller-owned array before mutating either shared
+    // tree. This cannot provide rollback after shared-memory exhaustion, but it
+    // prevents ordinary bad input from leaving a partially imported snapshot.
+    for (size_t index = 0; index < count; ++index) {
+      if (mappings[index].source == nullptr ||
+          mappings[index].destination == nullptr ||
+          mappings[index].source[0] == L'\0' ||
+          mappings[index].destination[0] == L'\0') {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+      }
+    }
+
+    auto writeContext               = WRITE_MAPPING_CONTEXT();
+    const auto skipDirectories      = writeContext->skipDirectories();
+    const auto skipFileSuffixes     = writeContext->skipFileSuffixes();
+    auto& redirectionTable          = writeContext->redirectionTable();
+    auto& inverseTable              = writeContext->inverseTable();
+
+    for (size_t index = 0; index < count; ++index) {
+      const auto& mapping = mappings[index];
+      const bool directory = (mapping.flags & LINKFLAG_DIRECTORY) != 0;
+      std::string sourceU8 =
+          ush::string_cast<std::string>(mapping.source, ush::CodePage::UTF8);
+
+      if (directory) {
+        const std::string leaf = bfs::path(sourceU8).filename().string();
+        if (fileNameInSkipDirectories(leaf, skipDirectories)) {
+          if (mapping.flags & LINKFLAG_FAILIFSKIPPED) {
+            SetLastError(ERROR_ACCESS_DENIED);
+            return FALSE;
+          }
+          continue;
+        }
+
+        if (sourceU8.empty() || sourceU8.back() != '\\') sourceU8 += "\\";
+        auto result = redirectionTable.addDirectory(
+            mapping.destination, usvfs::RedirectionDataLocal(sourceU8),
+            usvfs::shared::FLAG_DIRECTORY |
+                convertRedirectionFlags(mapping.flags),
+            true);
+        if (!result) {
+          SetLastError(ERROR_INVALID_DATA);
+          return FALSE;
+        }
+      } else {
+        if (fileNameInSkipSuffixes(sourceU8, skipFileSuffixes)) {
+          if (mapping.flags & LINKFLAG_FAILIFSKIPPED) {
+            SetLastError(ERROR_ACCESS_DENIED);
+            return FALSE;
+          }
+          continue;
+        }
+
+        auto result = redirectionTable.addFile(
+            bfs::path(mapping.destination), usvfs::RedirectionDataLocal(sourceU8),
+            true);
+        if (!result) {
+          SetLastError(ERROR_INVALID_DATA);
+          return FALSE;
+        }
+
+        if (shouldAddToInverseTree(sourceU8)) {
+          const std::string destinationU8 = ush::string_cast<std::string>(
+              mapping.destination, ush::CodePage::UTF8);
+          inverseTable.addFile(bfs::path(mapping.source),
+                               usvfs::RedirectionDataLocal(destinationU8), true);
+        }
+      }
+    }
+
+    writeContext->updateParameters();
+    return TRUE;
+  } catch (const std::exception& e) {
+    spdlog::get("usvfs")->error("failed to import virtual mapping snapshot: {}",
+                                e.what());
     SetLastError(ERROR_INVALID_DATA);
     return FALSE;
   }
