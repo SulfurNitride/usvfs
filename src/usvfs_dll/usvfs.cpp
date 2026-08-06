@@ -838,11 +838,10 @@ BOOL WINAPI usvfsVirtualLinkMappings(const usvfsVirtualMapping* mappings,
       }
     }
 
-    auto writeContext               = WRITE_MAPPING_CONTEXT();
-    const auto skipDirectories      = writeContext->skipDirectories();
-    const auto skipFileSuffixes     = writeContext->skipFileSuffixes();
-    auto& redirectionTable          = writeContext->redirectionTable();
-    auto& inverseTable              = writeContext->inverseTable();
+    const auto skipDirectories  = context->skipDirectories();
+    const auto skipFileSuffixes = context->skipFileSuffixes();
+    auto& redirectionTable      = context->redirectionTable();
+    auto& inverseTable          = context->inverseTable();
 
     for (size_t index = 0; index < count; ++index) {
       const auto& mapping = mappings[index];
@@ -896,7 +895,7 @@ BOOL WINAPI usvfsVirtualLinkMappings(const usvfsVirtualMapping* mappings,
       }
     }
 
-    writeContext->updateParameters();
+    context->updateParameters();
     return TRUE;
   } catch (const std::exception& e) {
     spdlog::get("usvfs")->error("failed to import virtual mapping snapshot: {}",
